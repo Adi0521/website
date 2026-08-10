@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1520">
+<title>Sand Field — Phase 1 · perspective</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --sand-lit:#EDDCB8; --sand-shadow:#5C7A99; --sea:#3E8F84;
+  --sun-rim:#FFE9B0; --foam:#F7FBF9; --ink:#0d1520;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --display:"Archivo",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;width:100%;overflow:hidden;background:var(--ink);}
+body{font-family:var(--mono);color:var(--foam);-webkit-font-smoothing:antialiased;touch-action:none;}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair;}
+
+#brand{position:fixed;top:20px;left:22px;z-index:20;pointer-events:none;
+  font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.34em;
+  text-transform:uppercase;opacity:.92;text-shadow:0 1px 14px rgba(0,0,0,.7);}
+#brand small{display:block;font-family:var(--mono);font-weight:400;font-size:9.5px;
+  letter-spacing:.2em;opacity:.6;margin-top:6px;}
+#hint{position:fixed;left:22px;bottom:20px;z-index:20;pointer-events:none;font-size:10px;
+  letter-spacing:.16em;text-transform:uppercase;opacity:.45;transition:opacity .6s ease;
+  text-shadow:0 1px 10px rgba(0,0,0,.7);}
+
+#panel{position:fixed;top:16px;right:16px;z-index:30;width:268px;
+  background:rgba(13,21,32,.74);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(247,251,249,.14);display:flex;flex-direction:column;
+  max-height:calc(100vh - 32px);}
+#panel.collapsed .pbody{display:none;}
+.phead{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;
+  border-bottom:1px solid rgba(247,251,249,.12);font-size:9.5px;letter-spacing:.2em;
+  text-transform:uppercase;opacity:.85;cursor:pointer;user-select:none;flex:0 0 auto;}
+.phead b{font-weight:500;}
+.pbody{padding:12px 13px 14px;overflow-y:auto;}
+.pbody::-webkit-scrollbar{width:5px;}
+.pbody::-webkit-scrollbar-thumb{background:rgba(247,251,249,.2);}
+.grp{margin-bottom:11px;}
+.grp label{display:flex;justify-content:space-between;align-items:baseline;font-size:9.5px;
+  letter-spacing:.13em;text-transform:uppercase;opacity:.66;margin-bottom:5px;}
+.grp label span{font-variant-numeric:tabular-nums;opacity:.95;color:var(--sun-rim);}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:2px;
+  background:rgba(247,251,249,.2);outline:none;cursor:pointer;margin:0;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;
+  height:11px;border-radius:50%;background:var(--sun-rim);cursor:pointer;border:none;}
+input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;
+  background:var(--sun-rim);cursor:pointer;border:none;}
+.sect{font-size:8.5px;letter-spacing:.24em;text-transform:uppercase;opacity:.38;
+  margin:16px 0 9px;padding-top:11px;border-top:1px solid rgba(247,251,249,.1);}
+.sect:first-child{margin-top:0;padding-top:0;border-top:0;}
+.row{display:flex;gap:5px;flex-wrap:wrap;}
+button{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  background:transparent;color:var(--foam);border:1px solid rgba(247,251,249,.22);
+  padding:6px 9px;cursor:pointer;flex:1;transition:.16s;white-space:nowrap;}
+button:hover{border-color:var(--sun-rim);color:var(--sun-rim);}
+button.on{background:var(--sun-rim);border-color:var(--sun-rim);color:var(--ink);}
+button:focus-visible,.phead:focus-visible{outline:2px solid var(--sea);outline-offset:2px;}
+#stats{display:flex;justify-content:space-between;font-size:9px;letter-spacing:.1em;opacity:.5;
+  margin-top:12px;padding-top:10px;border-top:1px solid rgba(247,251,249,.1);
+  font-variant-numeric:tabular-nums;}
+#fail{position:fixed;inset:0;z-index:60;display:none;place-items:center;background:var(--ink);
+  padding:32px;text-align:center;}
+#fail div{max-width:430px;font-size:12px;line-height:1.7;opacity:.85;text-align:left;}
+#fail b{display:block;font-family:var(--display);font-size:15px;font-weight:700;
+  letter-spacing:.2em;text-transform:uppercase;margin-bottom:14px;text-align:center;}
+@media (max-width:720px){
+  #panel{width:calc(100vw - 24px);right:12px;top:12px;}
+  #panel .pbody{max-height:42vh;}
+  #brand{font-size:11px;} #hint{display:none;}
+}
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+<div id="brand">SAND FIELD<small>PHASE 1 · RAYMARCHED HEIGHTFIELD</small></div>
+<div id="hint">DRAG TO PRESS · SHIFT-DRAG OR RIGHT-DRAG TO ORBIT · SCROLL ZOOM · H PANEL · R RESET</div>
+
+<div id="panel">
+  <div class="phead" id="phead" tabindex="0" role="button" aria-expanded="true">
+    <b>PARAMETERS</b><span id="chev">—</span>
+  </div>
+  <div class="pbody">
+    <div class="sect">Fill-in — how a mark heals</div>
+    <div class="grp"><label>Fill delay<span id="v-delay"></span></label>
+      <input type="range" id="s-delay" min="0" max="6" step="0.05"></div>
+    <div class="grp"><label>Slump rate<span id="v-slump"></span></label>
+      <input type="range" id="s-slump" min="0" max="30" step="0.25"></div>
+    <div class="grp"><label>Repose angle<span id="v-repose"></span></label>
+      <input type="range" id="s-repose" min="0.002" max="0.08" step="0.001"></div>
+    <div class="grp"><label>Wind infill<span id="v-infill"></span></label>
+      <input type="range" id="s-infill" min="0" max="3" step="0.02"></div>
+    <div class="grp"><label>Wind smoothing<span id="v-smooth"></span></label>
+      <input type="range" id="s-smooth" min="0" max="6" step="0.05"></div>
+    <div class="grp"><label>Settle rate<span id="v-decay"></span></label>
+      <input type="range" id="s-decay" min="0" max="0.6" step="0.005"></div>
+
+    <div class="sect">Brush</div>
+    <div class="grp"><label>Radius<span id="v-radius"></span></label>
+      <input type="range" id="s-radius" min="0.01" max="0.14" step="0.002"></div>
+    <div class="grp"><label>Press depth<span id="v-depth"></span></label>
+      <input type="range" id="s-depth" min="0.05" max="0.9" step="0.01"></div>
+    <div class="grp"><label>Rim height<span id="v-rim"></span></label>
+      <input type="range" id="s-rim" min="0" max="1.2" step="0.02"></div>
+
+    <div class="sect">Camera</div>
+    <div class="grp"><label>Tilt<span id="v-camel"></span></label>
+      <input type="range" id="s-camel" min="0.05" max="1.45" step="0.01"></div>
+    <div class="grp"><label>Distance<span id="s-dist-l"></span></label>
+      <input type="range" id="s-dist" min="1.1" max="6" step="0.05"></div>
+    <div class="grp"><label>Lens<span id="v-fov"></span></label>
+      <input type="range" id="s-fov" min="18" max="75" step="1"></div>
+
+    <div class="sect">Surface</div>
+    <div class="grp"><label>Relief<span id="v-relief"></span></label>
+      <input type="range" id="s-relief" min="0.2" max="3" step="0.05"></div>
+    <div class="grp"><label>Ripple depth<span id="v-ripamp"></span></label>
+      <input type="range" id="s-ripamp" min="0" max="0.3" step="0.005"></div>
+    <div class="grp"><label>Ripple scale<span id="v-ripscale"></span></label>
+      <input type="range" id="s-ripscale" min="4" max="130" step="0.5"></div>
+    <div class="grp"><label>Grain sparkle<span id="v-sparkle"></span></label>
+      <input type="range" id="s-sparkle" min="0" max="1.4" step="0.02"></div>
+
+    <div class="sect">Sea</div>
+    <div class="grp"><label>Shoreline<span id="v-shorez"></span></label>
+      <input type="range" id="s-shorez" min="-2.2" max="1.2" step="0.02"></div>
+    <div class="grp"><label>Beach slope<span id="v-slope"></span></label>
+      <input type="range" id="s-slope" min="0.02" max="0.30" step="0.005"></div>
+    <div class="grp"><label>Wave height<span id="v-waveamp"></span></label>
+      <input type="range" id="s-waveamp" min="0" max="0.09" step="0.001"></div>
+    <div class="grp"><label>Wavelength<span id="v-wavelen"></span></label>
+      <input type="range" id="s-wavelen" min="0.4" max="5" step="0.05"></div>
+    <div class="grp"><label>Wave speed<span id="v-wavespeed"></span></label>
+      <input type="range" id="s-wavespeed" min="0" max="2.2" step="0.02"></div>
+    <div class="grp"><label>Swash run-up<span id="v-surge"></span></label>
+      <input type="range" id="s-surge" min="0" max="0.14" step="0.002"></div>
+    <div class="grp"><label>Wave interval<span id="v-surgespeed"></span></label>
+      <input type="range" id="s-surgespeed" min="0.05" max="1.4" step="0.01"></div>
+    <div class="grp"><label>Interval jitter<span id="v-jitter"></span></label>
+      <input type="range" id="s-jitter" min="0" max="0.7" step="0.01"></div>
+    <div class="grp"><label>Size variation<span id="v-sizevar"></span></label>
+      <input type="range" id="s-sizevar" min="0" max="1" step="0.02"></div>
+    <div class="grp"><label>Drain time<span id="v-drain"></span></label>
+      <input type="range" id="s-drain" min="0.05" max="2" step="0.01"></div>
+    <div class="grp"><label>Foam<span id="v-foam"></span></label>
+      <input type="range" id="s-foam" min="0" max="1.6" step="0.02"></div>
+    <div class="grp"><label>Wave erase<span id="v-waveerase"></span></label>
+      <input type="range" id="s-waveerase" min="0" max="10" step="0.1"></div>
+    <div class="grp"><label>Drying rate<span id="v-dryrate"></span></label>
+      <input type="range" id="s-dryrate" min="0.01" max="1.2" step="0.01"></div>
+
+    <div class="sect">Light &amp; air</div>
+    <div class="grp"><label>Sun elevation<span id="v-sunel"></span></label>
+      <input type="range" id="s-sunel" min="0.03" max="0.9" step="0.005"></div>
+    <div class="grp"><label>Sun azimuth<span id="v-sunaz"></span></label>
+      <input type="range" id="s-sunaz" min="0" max="6.28" step="0.02"></div>
+    <div class="grp"><label>Sky fill<span id="v-sky"></span></label>
+      <input type="range" id="s-sky" min="0" max="1.2" step="0.02"></div>
+    <div class="grp"><label>Haze<span id="v-fog"></span></label>
+      <input type="range" id="s-fog" min="0" max="0.55" step="0.005"></div>
+    <div class="grp"><label>Exposure<span id="v-exposure"></span></label>
+      <input type="range" id="s-exposure" min="0.2" max="2.2" step="0.02"></div>
+    <div class="grp"><label>Saturation<span id="v-sat"></span></label>
+      <input type="range" id="s-sat" min="0" max="2" step="0.02"></div>
+
+    <div class="sect">Quality</div>
+    <div class="grp"><label>March steps<span id="v-steps"></span></label>
+      <input type="range" id="s-steps" min="32" max="150" step="2"></div>
+
+    <div class="sect">View</div>
+    <div class="row">
+      <button data-view="0" class="on">LIT</button>
+      <button data-view="1">HEIGHT</button>
+      <button data-view="2">NORMAL</button>
+      <button data-view="3">DISTURB</button>
+    </div>
+    <div class="row" style="margin-top:5px;">
+      <button id="b-auto" class="on">AUTO</button>
+      <button id="b-reset">RESET SAND</button>
+    </div>
+    <div class="row" style="margin-top:5px;">
+      <button id="b-defaults">RESTORE DEFAULTS</button>
+    </div>
+    <div id="stats"><span id="st-fps">—</span><span id="st-res">—</span></div>
+  </div>
+</div>
+
+<div id="fail"><div><b>Could not start</b><span id="failmsg"></span></div></div>
+
+<script>
+"use strict";
+
+/* ======================================================== shader sources == */
+
+const VERT = `#version 300 es
+in vec2 aPos;
+out vec2 vUv;
+void main(){ vUv = aPos*0.5+0.5; gl_Position = vec4(aPos,0.0,1.0); }`;
+
+const NOISE = `
+float hash21(vec2 p){
+  p = fract(p*vec2(123.34,345.45));
+  p += dot(p, p+34.345);
+  return fract(p.x*p.y);
+}
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f*f*(3.0-2.0*f);
+  float a = hash21(i);
+  float b = hash21(i+vec2(1.0,0.0));
+  float c = hash21(i+vec2(0.0,1.0));
+  float d = hash21(i+vec2(1.0,1.0));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+float fbm(vec2 p){
+  float s = 0.0, a = 0.5;
+  for(int i=0;i<5;i++){ s += a*vnoise(p); p = p*2.03 + 11.3; a *= 0.5; }
+  return s;
+}`;
+
+/* BAKE — static wind ripples + dune undulation.
+   Baked once so ripples never erode, and so the ray march can read terrain
+   with a texture fetch instead of re-evaluating 15 octaves of noise. */
+const BAKE_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outC;
+uniform float uAspect, uRipAmp, uRipScale, uRipAngle, uDuneAmp;
+${NOISE}
+void main(){
+  vec2 p = vUv*vec2(uAspect,1.0);
+  float ca = cos(uRipAngle), sa = sin(uRipAngle);
+  vec2 q = vec2(p.x*ca - p.y*sa, p.x*sa + p.y*ca);
+
+  float w1 = fbm(q*3.0)*2.0 - 1.0;
+  float w2 = fbm(q*7.4 + 5.7)*2.0 - 1.0;
+  float r  = sin(q.y*uRipScale + w1*3.2 + w2*0.9);
+  r = pow(r*0.5+0.5, 1.7);
+  float clumping = 0.5 + 0.5*fbm(q*1.15 + 3.3);
+  float rip = (r - 0.42)*clumping*uRipAmp;
+
+  float dune = (fbm(p*0.85 + 7.7) - 0.5)*uDuneAmp;
+  float grain = vnoise(p*520.0);
+  outC = vec4(rip + dune, grain, 0.0, 1.0);
+}`;
+
+/* SIM — erosion + brush stamping.  R height · G disturbance · B wet · A age */
+/* Shared by the simulation and the renderer, so they can never disagree about
+   where the water is. Declares its own uniforms; neither shader redeclares. */
+const WAVE = `
+uniform float uTime, uSeaLevel, uShoreZ, uSlope;
+uniform float uWaveAmp, uWaveLen, uWavePhase, uSurge;
+uniform float uSwash, uSwashFilm;
+
+// the beach itself: a gentle ramp, zero at the shoreline, rising toward the
+// camera and dropping away seaward
+float beachY(float z){ return clamp((z - uShoreZ)*uSlope, -1.3, 0.9); }
+
+// travelling swell. the shoaling taper is essential: without it the swell
+// keeps oscillating over dry sand and spawns standing bands of water up the
+// beach that blink in and out instead of a sheet running up and draining.
+// phase is accumulated on the cpu so wave speed can drift without the whole
+// train jumping backwards.
+float swellAt(vec2 xz){
+  float ph = xz.y*(6.28318/max(uWaveLen,0.05)) - uWavePhase;
+  float w  = sin(ph)*0.55 + sin(ph*1.87 + 1.3)*0.28 + sin(ph*0.61 - 2.1)*0.30;
+  w += sin(xz.x*0.8 + uTime*0.23)*0.18;
+  float stillDepth = uSeaLevel - beachY(xz.y);
+  return w*uWaveAmp*smoothstep(0.0, 0.15, stillDepth);
+}
+
+// uSwash / uSwashFilm come from the cpu-side wave scheduler. they vary only
+// with time, so evaluating them per ray-march step would cost thousands of
+// hashes a pixel for a value that is constant across the frame.
+float waterY(vec2 xz){ return uSeaLevel + swellAt(xz) + uSwash*uSurge; }
+float filmY (vec2 xz){ return uSeaLevel + swellAt(xz) + uSwashFilm*uSurge; }`;
+
+/* SIM — erosion + brush stamping + wave wetting.
+   R height · G disturbance · B wetness · A age */
+const SIM_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outC;
+uniform sampler2D uPrev, uStatic;
+uniform vec2  uTexel, uA, uB;
+uniform float uAspect, uPressure, uRadius, uDepth, uRim;
+uniform float uDt, uDecay, uSmooth, uReset;
+uniform float uSlump, uRepose, uInfill, uDelay;
+uniform float uDX, uDZ, uHtw, uWaveErase, uDryRate;
+${WAVE}
+
+float sdSeg(vec2 p, vec2 a, vec2 b){
+  vec2 pa = p-a, ba = b-a;
+  float h = clamp(dot(pa,ba)/max(dot(ba,ba),1e-9), 0.0, 1.0);
+  return length(pa - ba*h);
+}
+// material exchanged with one neighbour once the local slope passes repose.
+// antisymmetric in its arguments, so a pair of texels always trades the same
+// amount in opposite directions and no sand is created or destroyed.
+float xfer(float hC, float hN, float thr){
+  float dh = hC - hN;
+  return -sign(dh)*max(abs(dh) - thr, 0.0);
+}
+void main(){
+  if(uReset > 0.5){ outC = vec4(0.0); return; }
+  vec4 c = texture(uPrev, vUv);
+  float h0 = c.r, dst = c.g, wet = c.b, age = c.a;
+
+  // brush footprint first: freshly pressed sand must not slump the same frame
+  vec2 p = vUv*vec2(uAspect,1.0);
+  vec2 a = uA*vec2(uAspect,1.0);
+  vec2 b = uB*vec2(uAspect,1.0);
+  float d = sdSeg(p,a,b)/max(uRadius,1e-4);
+  float core = exp(-d*d*2.2);
+  float ring = exp(-pow((d-1.18)*3.0, 2.0));
+  float stampAmt = uPressure*(core + ring);
+
+  // age resets under the brush, so the mark holds briefly before it fills
+  age = min((age + uDt)*(1.0 - clamp(stampAmt*3.0, 0.0, 1.0)), 30.0);
+  float ramp = uDelay < 0.02 ? 1.0 : smoothstep(uDelay*0.55, uDelay*1.45, age);
+
+  float hL = texture(uPrev, vUv - vec2(uTexel.x,0.0)).r;
+  float hR = texture(uPrev, vUv + vec2(uTexel.x,0.0)).r;
+  float hU = texture(uPrev, vUv + vec2(0.0,uTexel.y)).r;
+  float hD = texture(uPrev, vUv - vec2(0.0,uTexel.y)).r;
+  float hA = texture(uPrev, vUv + vec2( uTexel.x, uTexel.y)).r;
+  float hB = texture(uPrev, vUv + vec2(-uTexel.x, uTexel.y)).r;
+  float hE = texture(uPrev, vUv + vec2( uTexel.x,-uTexel.y)).r;
+  float hF = texture(uPrev, vUv + vec2(-uTexel.x,-uTexel.y)).r;
+
+  float h = h0;
+
+  // wind smoothing: fine detail softens before gross shape
+  h = mix(h, (hL+hR+hU+hD)*0.25, clamp(uSmooth*uDt*ramp, 0.0, 0.9));
+
+  // slumping — sand past the angle of repose slides downhill, so a footprint
+  // fills from its own rim rather than fading uniformly in place
+  float tC = uRepose, tD = uRepose*1.41421;
+  float flow = xfer(h0,hL,tC) + xfer(h0,hR,tC) + xfer(h0,hU,tC) + xfer(h0,hD,tC)
+             + (xfer(h0,hA,tD) + xfer(h0,hB,tD) + xfer(h0,hE,tD) + xfer(h0,hF,tD))*0.70711;
+  h += (flow/6.82843)*clamp(uSlump*uDt, 0.0, 0.22)*ramp;
+
+  // wind delivers loose grain: it settles in hollows and scours mounds slower
+  h += max(-h, 0.0)*clamp(uInfill*uDt,      0.0, 0.5)*ramp;
+  h -= max( h, 0.0)*clamp(uInfill*0.45*uDt, 0.0, 0.5)*ramp;
+
+  // very slow drift to rest, keeps long sessions bounded
+  h   *= exp(-uDecay*uDt);
+  dst *= exp(-(uDecay*2.4 + 0.35)*uDt);
+
+  // ---- waves. water in reach smooths the sand flat and leaves it wet, which
+  // ---- is the beach's own reset: no UI, no explanation needed.
+  vec2 wxz  = vec2((vUv.x-0.5)*2.0*uDX, (vUv.y-0.5)*2.0*uDZ);
+  float terr = (h + texture(uStatic, vUv).r)*uHtw + beachY(wxz.y);
+  float cover = 1.0 - smoothstep(-0.006, 0.022, terr - waterY(wxz));
+  float film  = 1.0 - smoothstep(-0.004, 0.016, terr - filmY(wxz));
+  float k2 = cover*clamp(uWaveErase*uDt, 0.0, 1.0);
+  h   = mix(h, 0.0, k2);
+  dst = mix(dst, dst*0.12, k2);
+  // the stranded film keeps the sand wet long after the body has pulled back
+  wet = max(wet*exp(-uDryRate*uDt), max(cover, film*0.9));
+
+  // stamp: target-based, so holding still converges to a depth not a canyon
+  float k = clamp(uPressure*uDt*30.0, 0.0, 1.0);
+  h = mix(h, min(h, -uDepth*core),      k*core);
+  h = mix(h, max(h,  uDepth*uRim*ring), k*ring*(1.0-core));
+  dst = max(dst, min(1.0, uPressure*(core + ring*0.7)));
+
+  outC = vec4(clamp(h,-1.0,1.0), clamp(dst,0.0,1.0), clamp(wet,0.0,1.0), age);
+}`;
+
+/* RENDER — perspective ray march over heightfield and sea.
+   Still one fullscreen triangle and zero geometry. Y is up, field on XZ. */
+const REND_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outC;
+uniform sampler2D uField, uStatic;
+uniform vec2  uTexel, uRes;
+uniform vec3  uRo, uUu, uVv, uWw;
+uniform vec2  uCursorW;
+uniform float uFov, uWpt, uRelief, uSparkle, uSky;
+uniform float uSunEl, uSunAz, uDX, uDZ, uHtw, uFog, uSteps;
+uniform float uCursorOn, uCursorR, uExposure, uFoam, uSat;
+uniform int   uView;
+${WAVE}
+
+const vec3 SAND_LIT    = vec3(0.929,0.863,0.722);
+const vec3 SAND_SHADOW = vec3(0.361,0.478,0.600);
+const vec3 SUN_RIM     = vec3(1.000,0.914,0.690);
+const vec3 SEA         = vec3(0.243,0.561,0.518);   // accent / cursor ring
+const vec3 SEA_SHALLOW = vec3(0.196,0.596,0.690);   // turquoise over sand
+const vec3 SEA_DEEP    = vec3(0.075,0.310,0.573);   // deep blue offshore
+const vec3 FOAM        = vec3(0.968,0.984,0.976);
+
+float hash21(vec2 p){
+  p = fract(p*vec2(123.34,345.45));
+  p += dot(p, p+34.345);
+  return fract(p.x*p.y);
+}
+float vn2(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f*f*(3.0-2.0*f);
+  return mix(mix(hash21(i), hash21(i+vec2(1.0,0.0)), f.x),
+             mix(hash21(i+vec2(0.0,1.0)), hash21(i+vec2(1.0,1.0)), f.x), f.y);
+}
+float fbm2(vec2 p){
+  float s = 0.0, a = 0.5;
+  for(int i=0;i<3;i++){ s += a*vn2(p); p = p*2.07 + 7.1; a *= 0.5; }
+  return s;
+}
+
+vec2 w2uv(vec2 xz){ return vec2(xz.x/(2.0*uDX)+0.5, xz.y/(2.0*uDZ)+0.5); }
+
+// the interactive field is a finite texture. sampling past its edge returns
+// the nearest texel repeated forever, so a mark made at the boundary would
+// extrude outward as an infinite stripe. fade its contribution out instead.
+// the baked ripples use MIRRORED_REPEAT, so the beach itself keeps going.
+float patchMask(vec2 xz){
+  vec2 a = abs(vec2(xz.x/uDX, xz.y/uDZ));
+  return (1.0-smoothstep(0.78,0.99,a.x))*(1.0-smoothstep(0.78,0.99,a.y));
+}
+float heightAt(vec2 xz){
+  vec2 uv = w2uv(xz);
+  return texture(uStatic, uv).r + texture(uField, uv).r*patchMask(xz);
+}
+float terrainY(vec2 xz){ return heightAt(xz)*uHtw + beachY(xz.y); }
+float sceneY(vec2 xz){ return max(terrainY(xz), waterY(xz)); }
+
+// soft shadow: march the heightfield toward the sun. with a grazing sun this
+// is what makes a 2mm depression legible at all.
+float sunShadow(vec2 xz, float y0, vec3 L){
+  vec2 dir = normalize(L.xz);
+  float slope = L.y/max(length(L.xz), 1e-4);
+  float s = 1.0;
+  for(int i=1;i<=18;i++){
+    float fi = float(i);
+    float t  = uWpt*1.8*fi*(1.0 + fi*0.10);
+    float diff = terrainY(xz + dir*t) - (y0 + slope*t);
+    if(diff > 0.0) s = min(s, 1.0 - clamp(diff/(t*0.55), 0.0, 1.0));
+  }
+  return clamp(s, 0.0, 1.0);
+}
+
+vec3 skyCol(vec3 rd, vec3 L){
+  float up = clamp(rd.y, 0.0, 1.0);
+  vec3 zenith  = vec3(0.169,0.298,0.463);
+  vec3 horizon = vec3(0.847,0.784,0.678);
+  vec3 c = mix(horizon, zenith, pow(up, 0.52));
+  float sd = max(dot(rd, L), 0.0);
+  c += SUN_RIM*pow(sd, 250.0)*1.30;
+  c += SUN_RIM*pow(sd,   7.0)*0.24;
+  c += SEA_DEEP*0.10*(1.0-up);
+  return c;
+}
+
+void main(){
+  vec2 pix = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
+  vec3 ro = uRo;
+  vec3 rd = normalize(pix.x*uUu + pix.y*uVv + uFov*uWw);
+  vec3 L  = normalize(vec3(cos(uSunAz)*cos(uSunEl), sin(uSunEl), sin(uSunAz)*cos(uSunEl)));
+
+  // ---- march sand and sea together -------------------------------------
+  float t = 0.02, tHit = -1.0, tPrev = t;
+  float descent = max(-rd.y, 0.0);
+  int budget = int(uSteps);
+  for(int i=0;i<150;i++){
+    if(i >= budget) break;
+    vec3 p = ro + rd*t;
+    if(t > 18.0) break;
+    if(p.y > 1.1 && rd.y > 0.0) break;           // ascending, above everything
+    float d = p.y - sceneY(p.xz);
+    if(d < 0.0){
+      // crossed the surface. bisect for the true intersection, otherwise the
+      // hit snaps to the marching step and the sand renders as flat slabs.
+      float lo = tPrev, hi = t;
+      for(int j=0;j<8;j++){
+        float mid = 0.5*(lo+hi);
+        vec3 pm = ro + rd*mid;
+        if(pm.y - sceneY(pm.xz) < 0.0) hi = mid; else lo = mid;
+      }
+      tHit = hi;
+      break;
+    }
+    tPrev = t;
+    // step by how far the ray must travel to lose height d, not by d itself:
+    // a grazing ray covers far more ground per unit of height it descends
+    t += clamp(d/max(descent, 0.03)*0.8, 0.004 + t*0.004, 0.6);
+  }
+  if(tHit < 0.0 && rd.y < 0.0 && t < 18.0) tHit = t;
+
+  vec3 col;
+  if(tHit < 0.0){
+    col = skyCol(rd, L);
+  } else {
+    vec3 p  = ro + rd*tHit;
+    vec3 V  = normalize(ro - p);
+    float tY = terrainY(p.xz);
+    float wY = waterY(p.xz);
+    float depth = wY - tY;
+
+    if(depth > 0.0009){
+      // ---------------------------------------------------------- water --
+      float ex = 0.010 + tHit*0.010;
+      float wl = waterY(p.xz - vec2(ex,0.0)), wr = waterY(p.xz + vec2(ex,0.0));
+      float wu = waterY(p.xz + vec2(0.0,ex)), wd = waterY(p.xz - vec2(0.0,ex));
+      vec3 WN = normalize(vec3(-(wr-wl)/(2.0*ex), 1.0, -(wu-wd)/(2.0*ex)));
+
+      // sand seen through the water, extinguishing with depth
+      vec3 bed  = SAND_LIT*0.78*exp(-depth*9.0);
+      // the water column itself grades from turquoise where the sand shows
+      // through to deep blue once it is thick enough to swallow the light
+      vec3 column = mix(SEA_SHALLOW, SEA_DEEP, 1.0 - exp(-depth*2.6));
+      vec3 body = mix(column, bed, exp(-depth*13.0));
+      float fres = pow(1.0 - max(dot(WN,V), 0.0), 4.0);
+      col = mix(body, skyCol(reflect(-V, WN), L), fres*0.38);
+
+      vec3 Hw = normalize(L + V);
+      col += SUN_RIM*pow(max(dot(WN,Hw), 0.0), 200.0)*1.5;
+
+      // foam: a thin sheet where the sheet runs out, plus breakup on steep faces
+      float slope = length(vec2(wr-wl, wu-wd))/(2.0*ex);
+      float edge  = 1.0 - smoothstep(0.0, 0.024, depth);
+      float crest = smoothstep(0.42, 1.05, slope);
+      float fn    = fbm2(p.xz*9.0 + vec2(0.0, uTime*0.55));
+      float foam  = clamp((edge*1.2 + crest*0.85)*(0.40 + 0.80*fn), 0.0, 1.0)*uFoam;
+      col = mix(col, FOAM, foam);
+
+    } else {
+      // ----------------------------------------------------------- sand --
+      vec2 uv = w2uv(p.xz);
+      float msk = patchMask(p.xz);
+      float dst = texture(uField, uv).g*msk;
+      float wet = texture(uField, uv).b*msk;
+      // sheet too thin to be worth marching as geometry, so it is shaded as an
+      // overlay on the sand instead
+      float filmAmt = smoothstep(0.0, 0.014, filmY(p.xz) - tY);
+      wet = max(wet, filmAmt*0.92);
+
+      // widen the sampling footprint with distance: one texel projects to well
+      // under a pixel out near the horizon, which is what makes it shimmer
+      float lod = 1.0 + tHit*1.5;
+      float ew  = uWpt*lod;
+      float hl = heightAt(p.xz - vec2(ew,0.0));
+      float hr = heightAt(p.xz + vec2(ew,0.0));
+      float hu = heightAt(p.xz + vec2(0.0,ew));
+      float hd = heightAt(p.xz - vec2(0.0,ew));
+      float h0 = heightAt(p.xz);
+      float ws = 2.0*ew;
+      vec3 N = normalize(vec3(-(hr-hl)*uHtw/ws, 1.0, -(hu-hd)*uHtw/ws));
+
+      // sub-texel grain roughness, stronger where sand was recently moved
+      vec2 mp = p.xz*430.0;
+      float m0 = hash21(floor(mp));
+      float mx = hash21(floor(mp+vec2(1.0,0.0)));
+      float my = hash21(floor(mp+vec2(0.0,1.0)));
+      float micro = (0.055 + 0.10*dst)*(1.0 - 0.7*wet)/(1.0 + tHit*2.2);
+      N = normalize(N + vec3((mx-m0)*micro, 0.0, (my-m0)*micro));
+
+      float sh = sunShadow(p.xz, p.y, L);
+
+      float wide = heightAt(p.xz + vec2( 7.0*ew,0.0))
+                 + heightAt(p.xz + vec2(-7.0*ew,0.0))
+                 + heightAt(p.xz + vec2(0.0, 7.0*ew))
+                 + heightAt(p.xz + vec2(0.0,-7.0*ew));
+      float ao = clamp(1.0 - (wide*0.25 - h0)*2.6, 0.25, 1.0);
+
+      float grain = texture(uStatic, uv).g;
+      vec3 albedo = SAND_LIT*(0.93 + 0.14*grain);
+      albedo = mix(albedo, albedo*vec3(0.80,0.76,0.72), dst*0.55);
+      // wet sand is darker: water fills the gaps between grains and stops them
+      // scattering, which is most of why a receding wave leaves a dark band
+      albedo = mix(albedo, albedo*vec3(0.50,0.49,0.48), wet);
+
+      // expose for the sand: normalising by sun elevation means dropping the sun
+      // lengthens shadows instead of just dimming everything
+      float ndl = max(dot(N,L), 0.0);
+      vec3 direct  = SUN_RIM*ndl*sh*uExposure/max(sin(uSunEl), 0.10);
+      vec3 ambient = SAND_SHADOW*(0.45 + 0.55*N.y)*ao*uSky;
+      col = albedo*(direct + ambient);
+
+      vec3 Hv = normalize(L + V);
+      float nh = max(dot(N,Hv), 0.0);
+      col += SUN_RIM*pow(nh, mix(52.0,14.0,dst))*mix(0.05,0.018,dst)*sh;
+      col += SUN_RIM*pow(nh, 110.0)*wet*0.45*sh;          // sheen on wet sand
+      float gs = hash21(floor(p.xz*880.0));
+      col += SUN_RIM*pow(gs,22.0)*pow(nh,7.0)*sh*uSparkle*(1.0-wet)/(1.0 + tHit*1.6);
+      col += SAND_SHADOW*0.12*(1.0-ao)*uSky;
+
+      // draining film: glossy, faintly mirroring the sky, with foam flecks
+      // that strand and fade rather than blinking out with the waterline
+      if(filmAmt > 0.001){
+        col = mix(col, skyCol(reflect(-V, N), L), filmAmt*0.15);
+        col += SUN_RIM*pow(nh, 240.0)*filmAmt*0.85*sh;
+        float fl = fbm2(p.xz*11.0 + vec2(0.0, uTime*0.35));
+        col = mix(col, FOAM, filmAmt*smoothstep(0.60,0.96,fl)*0.40*uFoam);
+      }
+
+      float cd = length(p.xz - uCursorW);
+      col += SEA*exp(-pow((cd-uCursorR)*26.0,2.0))*0.30*uCursorOn;
+
+      if(uView == 1){ col = mix(vec3(0.05,0.09,0.16), SEA, h0*0.5+0.5); }
+      else if(uView == 2){ col = N*0.5+0.5; }
+      else if(uView == 3){ col = mix(vec3(0.04,0.07,0.11), SUN_RIM, dst); }
+    }
+
+    if(uView == 0) col = mix(col, skyCol(rd, L), 1.0 - exp(-tHit*uFog));
+  }
+
+  if(uView == 0){
+    col = (col*(2.51*col+0.03))/(col*(2.43*col+0.59)+0.14);   // ACES
+    float lum = dot(col, vec3(0.2126,0.7152,0.0722));
+    col = clamp(mix(vec3(lum), col, uSat), 0.0, 1.0);
+    vec2 dv = vUv-0.5;
+    float asp = uRes.x/max(uRes.y,1.0);
+    col *= mix(1.0, smoothstep(1.28,0.30,length(dv*vec2(asp,1.0))*1.14), 0.42);
+    col += (hash21(gl_FragCoord.xy + fract(uTime*13.7)*97.0)-0.5)*0.022*(1.0-0.5*col);
+  }
+  outC = vec4(clamp(col,0.0,1.0), 1.0);
+}`;
+
+/* ============================================================ bootstrap == */
+
+const canvas = document.getElementById('gl');
+function die(title, msg){
+  document.getElementById('fail').style.display = 'grid';
+  document.querySelector('#fail b').textContent = title;
+  document.getElementById('failmsg').textContent = msg;
+}
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, powerPreference:'high-performance'});
+if(!gl){ die('WebGL2 unavailable','This prototype needs WebGL2. Try a current Chrome, Firefox or Safari with hardware acceleration on.'); throw new Error('no webgl2'); }
+if(!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'))){
+  die('Float targets unavailable','Your GPU or driver will not render to float textures, which the sand simulation needs.');
+  throw new Error('no float rt');
+}
+
+function compile(type, src, name){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    throw new Error(name + ': ' + gl.getShaderInfoLog(s));
+  }
+  return s;
+}
+function program(fs, name){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VERT, 'VERT'));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs, name));
+  gl.bindAttribLocation(p, 0, 'aPos');
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(name + ': ' + gl.getProgramInfoLog(p));
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){ const nm = gl.getActiveUniform(p,i).name; u[nm] = gl.getUniformLocation(p,nm); }
+  return {p,u};
+}
+let progBake, progSim, progRend;
+try {
+  progBake = program(BAKE_FRAG,'BAKE');
+  progSim  = program(SIM_FRAG,'SIM');
+  progRend = program(REND_FRAG,'RENDER');
+} catch(e){
+  die('Shader failed to compile', String(e.message||e).slice(0,700));
+  throw e;
+}
+
+gl.bindVertexArray(gl.createVertexArray());
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+function makeTarget(w,h,wrap){
+  wrap = wrap || gl.CLAMP_TO_EDGE;
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return {tex, fb, w, h};
+}
+
+/* =============================================================== params == */
+
+const DOMAIN = 2.6;                       // sand half-extent in Z, world units
+const DEFAULTS = {
+  decay:0.02, smooth:0.6, slump:10, repose:0.012, infill:0.55, delay:1.2,
+  radius:0.024, depth:0.34, rim:0.42,
+  camel:0.23, dist:2.9, fov:46,
+  relief:1.0, ripamp:0.115, ripscale:48, sparkle:0.55,
+  sunel:0.17, sunaz:2.35, sky:0.60, fog:0.055, exposure:0.95,
+  sealevel:0.0, shorez:0.0, slope:0.085, waveamp:0.055, wavelen:1.5,
+  wavespeed:0.85, surge:0.088, surgespeed:0.5, foam:1.0, drain:0.35, jitter:0.45, sizevar:0.65,
+  waveerase:4.2, dryrate:0.12, sat:1.36,
+  steps:96
+};
+const P = Object.assign({}, DEFAULTS);
+let view = 0, autoDraw = true, needBake = true, camAz = 1.55;
+
+/* ================================================================ state == */
+
+let simA, simB, statTex, simW = 2, simH = 2, dpr = 1;
+
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 1.4);
+  const w = Math.max(2, Math.round(canvas.clientWidth  * dpr));
+  const h = Math.max(2, Math.round(canvas.clientHeight * dpr));
+  if(canvas.width === w && canvas.height === h && simA) return;
+  canvas.width = w; canvas.height = h;
+  const CAP = 1500, sc = Math.min(1, CAP/Math.max(w,h));
+  simW = Math.max(2, Math.round(w*sc));
+  simH = Math.max(2, Math.round(h*sc));
+  [simA, simB, statTex].forEach(t => {
+    if(t){ gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fb); }
+  });
+  simA = makeTarget(simW, simH);
+  simB = makeTarget(simW, simH);
+  statTex = makeTarget(simW, simH, gl.MIRRORED_REPEAT);
+  [simA, simB].forEach(t => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb);
+    gl.viewport(0,0,t.w,t.h);
+    gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+  });
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  needBake = true;
+  document.getElementById('st-res').textContent = simW + '\u00d7' + simH;
+}
+
+/* ---- wave scheduler -----------------------------------------------------
+   Waves are discrete events rather than a fixed cycle. Each one gets its own
+   arrival time, reach, build character and drain, drawn from a hash of its
+   index so the sequence is varied but deterministic and stateless. Overlapping
+   swashes combine by max, which is what a waterline actually does. */
+function h1(n){ const x = Math.sin(n*127.1 + 311.7)*43758.5453; return x - Math.floor(x); }
+function ss1(x){ x = Math.min(1, Math.max(0, x)); return x*x*(3 - 2*x); }
+function noise1(t){
+  const i = Math.floor(t), f = t - i, u = f*f*(3 - 2*f);
+  return h1(i)*(1 - u) + h1(i + 1)*u;
+}
+function swashAt(t, drainExp){
+  const period = 6.28318/Math.max(P.surgespeed, 0.01);
+  const n0 = Math.floor(t/period);
+  let best = 0;
+  for(let k = -2; k <= 1; k++){
+    const n  = n0 + k;
+    const r1 = h1(n*1.13 + 3.7),  r2 = h1(n*2.71 + 11.3);
+    const r3 = h1(n*0.57 + 27.9), r4 = h1(n*3.31 + 41.1);
+    const T = (n + (r1 - 0.5)*P.jitter)*period;   // uneven spacing
+    const A = 0.34 + 0.66*r2;                     // how far it reaches
+    const R = (0.14 + 0.42*r3)*period;            // build time
+    const F = (0.60 + 0.90*r4)*period;            // drain time
+    const x = t - T;
+    if(x < 0 || x > R + F) continue;
+    // waves that build slowly also swell in more gently; quick ones snap up
+    const v = x < R ? Math.pow(ss1(x/R), 0.70 + 1.70*r3)
+                    : Math.pow(1 - ss1((x - R)/F), drainExp);
+    best = Math.max(best, A*v);
+  }
+  return best;
+}
+let wavePhase = 0, swashBodyNow = 0, swashFilmNow = 0, waveAmpNow = 0;
+function stepWaves(dt){
+  // speed drifts between sets; integrating it keeps the train continuous
+  wavePhase += dt*P.wavespeed*(0.82 + 0.36*noise1(tAcc*0.05 + 11.7));
+  swashBodyNow = swashAt(tAcc, 1.25);
+  swashFilmNow = Math.max(swashBodyNow, swashAt(tAcc, Math.max(P.drain, 0.05)));
+  waveAmpNow   = P.waveamp*(1 - P.sizevar*0.5 + P.sizevar*noise1(tAcc*0.08 + 5.3));
+}
+
+// the simulation and the renderer must receive byte-identical wave state or
+// the waterline they each compute will drift apart
+function waveUniforms(pr){
+  gl.uniform1f(pr.u.uTime, tAcc);
+  gl.uniform1f(pr.u.uSeaLevel, P.sealevel);
+  gl.uniform1f(pr.u.uShoreZ, P.shorez);
+  gl.uniform1f(pr.u.uSlope, P.slope);
+  gl.uniform1f(pr.u.uWaveAmp, waveAmpNow);
+  gl.uniform1f(pr.u.uWaveLen, P.wavelen);
+  gl.uniform1f(pr.u.uWavePhase, wavePhase);
+  gl.uniform1f(pr.u.uSurge, P.surge);
+  gl.uniform1f(pr.u.uSwash, swashBodyNow);
+  gl.uniform1f(pr.u.uSwashFilm, swashFilmNow);
+}
+
+function bake(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, statTex.fb);
+  gl.viewport(0,0,simW,simH);
+  gl.useProgram(progBake.p);
+  gl.uniform1f(progBake.u.uAspect, simW/simH);
+  gl.uniform1f(progBake.u.uRipAmp, P.ripamp);
+  gl.uniform1f(progBake.u.uRipScale, P.ripscale);
+  gl.uniform1f(progBake.u.uRipAngle, 0.42);
+  gl.uniform1f(progBake.u.uDuneAmp, 0.20);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  needBake = false;
+}
+
+/* ================================================= camera + pointer math = */
+
+const sub = (a,b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+const cross = (a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const norm = a => { const l = Math.hypot(a[0],a[1],a[2]) || 1; return [a[0]/l,a[1]/l,a[2]/l]; };
+
+function camera(){
+  const ce = Math.cos(P.camel), se = Math.sin(P.camel);
+  const ro = [Math.cos(camAz)*ce*P.dist, se*P.dist, Math.sin(camAz)*ce*P.dist];
+  const ww = norm(sub([0,0,0], ro));
+  const uu = norm(cross(ww, [0,1,0]));
+  const vv = cross(uu, ww);
+  return {ro, uu, vv, ww, fov: 1/Math.tan(P.fov*Math.PI/360)};
+}
+
+// intersect the pointer ray with the y=0 plane, then convert to field uv
+function pointerToUv(cx, cy){
+  const c = camera();
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  const px = (cx*W - 0.5*W)/H, py = (cy*H - 0.5*H)/H;
+  const rd = norm([
+    px*c.uu[0] + py*c.vv[0] + c.fov*c.ww[0],
+    px*c.uu[1] + py*c.vv[1] + c.fov*c.ww[1],
+    px*c.uu[2] + py*c.vv[2] + c.fov*c.ww[2]]);
+  if(rd[1] >= -1e-4) return null;
+  const t = -c.ro[1]/rd[1];
+  if(t < 0 || t > 40) return null;
+  const wx = c.ro[0] + rd[0]*t, wz = c.ro[2] + rd[2]*t;
+  const dx = DOMAIN*(simW/simH);
+  const u = wx/(2*dx)+0.5, v = wz/(2*DOMAIN)+0.5;
+  // outside the interactive patch: report invalid so nothing is stamped and
+  // the cursor ring disappears, which shows where the zone ends
+  if(u < 0.005 || u > 0.995 || v < 0.005 || v > 0.995) return null;
+  return [u, v];
+}
+
+let ptr = {u:0.5, v:0.5, pu:0.5, pv:0.5, inside:false, down:false, orbit:false, valid:false};
+let lastInput = -1e9, resetFlag = false, dragX = 0, dragY = 0;
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  if(e.shiftKey || e.button === 2){ ptr.orbit = true; dragX = e.clientX; dragY = e.clientY; }
+  else ptr.down = true;
+  lastInput = performance.now();
+});
+canvas.addEventListener('pointermove', e => {
+  if(ptr.orbit){
+    camAz -= (e.clientX - dragX)*0.006;
+    P.camel = Math.min(1.45, Math.max(0.05, P.camel + (e.clientY - dragY)*0.004));
+    dragX = e.clientX; dragY = e.clientY;
+    document.getElementById('s-camel').value = P.camel;
+    document.getElementById('v-camel').textContent = P.camel.toFixed(2);
+    lastInput = performance.now();
+    return;
+  }
+  const r = canvas.getBoundingClientRect();
+  const uvp = pointerToUv((e.clientX-r.left)/r.width, 1 - (e.clientY-r.top)/r.height);
+  ptr.valid = !!uvp;
+  if(uvp){ ptr.u = uvp[0]; ptr.v = uvp[1]; }
+  ptr.inside = true;
+  lastInput = performance.now();
+}, {passive:true});
+window.addEventListener('pointerup', () => { ptr.down = false; ptr.orbit = false; });
+canvas.addEventListener('pointerleave', () => { ptr.inside = false; ptr.down = false; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  P.dist = Math.min(6, Math.max(1.1, P.dist + e.deltaY*0.0016));
+  document.getElementById('s-dist').value = P.dist;
+  document.getElementById('s-dist-l').textContent = P.dist.toFixed(2);
+  lastInput = performance.now();
+}, {passive:false});
+
+let wanderT = Math.random()*100;
+function wander(t){
+  const a = Math.sin(t*0.31) + 0.6*Math.sin(t*0.73+1.7) + 0.35*Math.sin(t*1.19+4.1);
+  const b = Math.cos(t*0.27+2.2) + 0.6*Math.cos(t*0.67+0.4) + 0.35*Math.cos(t*1.31+3.3);
+  return [0.5 + a*0.18, 0.5 + b*0.17];
+}
+
+/* =================================================================== loop */
+
+let raf = 0, last = performance.now(), tAcc = 0;
+let fpsAcc = 0, fpsN = 0, fpsT = 0, visible = true, onscreen = true;
+
+function frame(){
+  raf = requestAnimationFrame(frame);
+  const now = performance.now();
+  const real = Math.max(0.0005, (now-last)/1000);
+  last = now;
+  if(!visible || !onscreen) return;
+  const dt = Math.min(real, 0.05);
+  tAcc += dt;
+
+  fpsAcc += 1/real; fpsN++;
+  if(now - fpsT > 400){
+    document.getElementById('st-fps').textContent = Math.round(fpsAcc/fpsN) + ' FPS';
+    fpsAcc = 0; fpsN = 0; fpsT = now;
+  }
+
+  resize();
+  if(needBake) bake();
+  stepWaves(dt);
+
+  const idle = (now - lastInput) > 5000;
+  let pressure = 0, au = ptr.pu, av = ptr.pv, bu = ptr.u, bv = ptr.v;
+
+  if(ptr.inside && ptr.valid && !ptr.orbit && !idle){
+    pressure = ptr.down ? 1.0 : 0.42;
+  } else if(autoDraw){
+    wanderT += dt*0.5;
+    const w1 = wander(wanderT), w0 = wander(wanderT - dt*0.5);
+    au = w0[0]; av = w0[1]; bu = w1[0]; bv = w1[1];
+    pressure = 0.75;
+    if(idle) camAz += dt*0.035;                      // slow idle drift
+  }
+  ptr.pu = bu; ptr.pv = bv;
+
+  // ---- sim
+  gl.bindFramebuffer(gl.FRAMEBUFFER, simB.fb);
+  gl.viewport(0,0,simW,simH);
+  gl.useProgram(progSim.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, simA.tex);
+  gl.uniform1i(progSim.u.uPrev, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, statTex.tex);
+  gl.uniform1i(progSim.u.uStatic, 1);
+  gl.uniform2f(progSim.u.uTexel, 1/simW, 1/simH);
+  gl.uniform2f(progSim.u.uA, au, av);
+  gl.uniform2f(progSim.u.uB, bu, bv);
+  gl.uniform1f(progSim.u.uAspect, simW/simH);
+  gl.uniform1f(progSim.u.uPressure, pressure);
+  gl.uniform1f(progSim.u.uRadius, P.radius);
+  gl.uniform1f(progSim.u.uDepth, P.depth);
+  gl.uniform1f(progSim.u.uRim, P.rim);
+  gl.uniform1f(progSim.u.uDt, dt);
+  gl.uniform1f(progSim.u.uDecay, P.decay);
+  gl.uniform1f(progSim.u.uSmooth, P.smooth);
+  gl.uniform1f(progSim.u.uSlump, P.slump);
+  gl.uniform1f(progSim.u.uRepose, P.repose);
+  gl.uniform1f(progSim.u.uInfill, P.infill);
+  gl.uniform1f(progSim.u.uDelay, P.delay);
+  gl.uniform1f(progSim.u.uDX, DOMAIN*(simW/simH));
+  gl.uniform1f(progSim.u.uDZ, DOMAIN);
+  gl.uniform1f(progSim.u.uHtw, 0.06*P.relief*2.4);
+  gl.uniform1f(progSim.u.uWaveErase, P.waveerase);
+  gl.uniform1f(progSim.u.uDryRate, P.dryrate);
+  waveUniforms(progSim);
+  gl.uniform1f(progSim.u.uReset, resetFlag ? 1 : 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  resetFlag = false;
+  const tmp = simA; simA = simB; simB = tmp;
+
+  // ---- render
+  const c = camera();
+  const dx = DOMAIN*(simW/simH);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(progRend.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, simA.tex);
+  gl.uniform1i(progRend.u.uField, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, statTex.tex);
+  gl.uniform1i(progRend.u.uStatic, 1);
+  gl.uniform2f(progRend.u.uTexel, 1/simW, 1/simH);
+  gl.uniform2f(progRend.u.uRes, canvas.width, canvas.height);
+  gl.uniform3f(progRend.u.uRo, c.ro[0], c.ro[1], c.ro[2]);
+  gl.uniform3f(progRend.u.uUu, c.uu[0], c.uu[1], c.uu[2]);
+  gl.uniform3f(progRend.u.uVv, c.vv[0], c.vv[1], c.vv[2]);
+  gl.uniform3f(progRend.u.uWw, c.ww[0], c.ww[1], c.ww[2]);
+  gl.uniform1f(progRend.u.uFov, c.fov);
+  gl.uniform1f(progRend.u.uWpt, 2*DOMAIN/simH);
+  gl.uniform1f(progRend.u.uRelief, P.relief);
+  gl.uniform1f(progRend.u.uSparkle, P.sparkle);
+  gl.uniform1f(progRend.u.uSky, P.sky);
+  gl.uniform1f(progRend.u.uSunEl, P.sunel);
+  gl.uniform1f(progRend.u.uSunAz, P.sunaz);
+  gl.uniform1f(progRend.u.uDX, dx);
+  gl.uniform1f(progRend.u.uDZ, DOMAIN);
+  gl.uniform1f(progRend.u.uHtw, 0.06*P.relief*2.4);
+  gl.uniform1f(progRend.u.uFog, P.fog);
+  gl.uniform1f(progRend.u.uExposure, P.exposure);
+  gl.uniform1f(progRend.u.uFoam, P.foam);
+  gl.uniform1f(progRend.u.uSat, P.sat);
+  waveUniforms(progRend);
+  gl.uniform1f(progRend.u.uSteps, P.steps);
+  gl.uniform2f(progRend.u.uCursorW, (bu-0.5)*2*dx, (bv-0.5)*2*DOMAIN);
+  gl.uniform1f(progRend.u.uCursorOn, (ptr.inside && ptr.valid && !idle) ? 1 : 0);
+  gl.uniform1f(progRend.u.uCursorR, P.radius*2*DOMAIN);
+  gl.uniform1i(progRend.u.uView, view);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ============================================================= lifecycle = */
+
+document.addEventListener('visibilitychange', () => { visible = !document.hidden; last = performance.now(); });
+if('IntersectionObserver' in window){
+  new IntersectionObserver(es => { onscreen = es[0].isIntersecting; last = performance.now(); },
+    {threshold:0.01}).observe(canvas);
+}
+canvas.addEventListener('webglcontextlost', e => {
+  e.preventDefault(); cancelAnimationFrame(raf);
+  die('Graphics context lost','Reload the page to restart the simulation.');
+});
+window.addEventListener('resize', resize);
+
+/* ==================================================================== ui = */
+
+const SLIDERS = [
+  ['decay','decay',v=>v.toFixed(3)], ['smooth','smooth',v=>v.toFixed(2)],
+  ['delay','delay',v=>v.toFixed(2)+'s'], ['slump','slump',v=>v.toFixed(2)],
+  ['repose','repose',v=>v.toFixed(3)], ['infill','infill',v=>v.toFixed(2)],
+  ['radius','radius',v=>v.toFixed(3)], ['depth','depth',v=>v.toFixed(2)],
+  ['rim','rim',v=>v.toFixed(2)],
+  ['camel','camel',v=>v.toFixed(2)], ['dist','dist',v=>v.toFixed(2)],
+  ['fov','fov',v=>v.toFixed(0)],
+  ['relief','relief',v=>v.toFixed(2)], ['ripamp','ripamp',v=>v.toFixed(3)],
+  ['ripscale','ripscale',v=>v.toFixed(1)], ['sparkle','sparkle',v=>v.toFixed(2)],
+  ['sunel','sunel',v=>v.toFixed(3)], ['sunaz','sunaz',v=>v.toFixed(2)],
+  ['sky','sky',v=>v.toFixed(2)], ['fog','fog',v=>v.toFixed(3)],
+  ['exposure','exposure',v=>v.toFixed(2)], ['sat','sat',v=>v.toFixed(2)],
+  ['shorez','shorez',v=>v.toFixed(2)], ['slope','slope',v=>v.toFixed(3)],
+  ['waveamp','waveamp',v=>v.toFixed(3)], ['wavelen','wavelen',v=>v.toFixed(2)],
+  ['wavespeed','wavespeed',v=>v.toFixed(2)], ['surge','surge',v=>v.toFixed(3)],
+  ['surgespeed','surgespeed',v=>(6.283/v).toFixed(1)+'s'],
+  ['jitter','jitter',v=>v.toFixed(2)], ['sizevar','sizevar',v=>v.toFixed(2)], ['foam','foam',v=>v.toFixed(2)],
+  ['drain','drain',v=>v.toFixed(2)],
+  ['waveerase','waveerase',v=>v.toFixed(1)], ['dryrate','dryrate',v=>v.toFixed(2)],
+  ['steps','steps',v=>v.toFixed(0)]
+];
+const valId = id => id === 'dist' ? 's-dist-l' : 'v-'+id;
+function syncUI(){
+  for(const [key,id,fmt] of SLIDERS){
+    document.getElementById('s-'+id).value = P[key];
+    document.getElementById(valId(id)).textContent = fmt(P[key]);
+  }
+}
+for(const [key,id,fmt] of SLIDERS){
+  document.getElementById('s-'+id).addEventListener('input', e => {
+    P[key] = parseFloat(e.target.value);
+    document.getElementById(valId(id)).textContent = fmt(P[key]);
+    if(key === 'ripamp' || key === 'ripscale') needBake = true;
+  });
+}
+document.querySelectorAll('[data-view]').forEach(b => {
+  b.addEventListener('click', () => {
+    view = parseInt(b.dataset.view, 10);
+    document.querySelectorAll('[data-view]').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+  });
+});
+const bAuto = document.getElementById('b-auto');
+bAuto.addEventListener('click', () => { autoDraw = !autoDraw; bAuto.classList.toggle('on', autoDraw); });
+document.getElementById('b-reset').addEventListener('click', () => { resetFlag = true; });
+document.getElementById('b-defaults').addEventListener('click', () => {
+  Object.assign(P, DEFAULTS); syncUI(); needBake = true;
+});
+
+const panel = document.getElementById('panel'), phead = document.getElementById('phead');
+function togglePanel(){
+  panel.classList.toggle('collapsed');
+  const open = !panel.classList.contains('collapsed');
+  phead.setAttribute('aria-expanded', String(open));
+  document.getElementById('chev').textContent = open ? '\u2014' : '+';
+}
+phead.addEventListener('click', togglePanel);
+phead.addEventListener('keydown', e => {
+  if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); togglePanel(); }
+});
+window.addEventListener('keydown', e => {
+  if(e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if(k === 'h') togglePanel();
+  else if(k === 'r') resetFlag = true;
+  else if(k === 'a'){ autoDraw = !autoDraw; bAuto.classList.toggle('on', autoDraw); }
+});
+
+const hintEl = document.getElementById('hint');
+setTimeout(() => { hintEl.style.opacity = '0'; }, 10000);
+canvas.addEventListener('pointerdown', () => { hintEl.style.opacity = '0'; }, {once:true});
+
+if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+  autoDraw = false; bAuto.classList.remove('on');
+}
+
+syncUI();
+resize();
+frame();
+</script>
+</body>
+</html>
