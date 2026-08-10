@@ -4,14 +4,35 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - name: Install glslang
         run: sudo apt-get update -qq && sudo apt-get install -y glslang-tools
+
+      # Puppeteer downloads ~150MB of Chrome on install; setup-node's cache
+      # only covers ~/.npm, so without this it is re-fetched every run.
+      - name: Cache Puppeteer browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/puppeteer
+          key: puppeteer-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - run: npm ci
       - name: Validate shaders
         run: npm run validate
       - name: Typecheck and build
         run: npm run build
+
+      # Temporal behaviour goes through the unit harness, never a screenshot —
+      # software rendering runs ~1s of simulated time in 25 real seconds.
+      - name: Sim unit tests
+        run: npm run test:sim
+
+      # Guards the assumption the two-mode design rests on: one WebGL context
+      # for the whole session. Discrete state, so SwiftShader answers it
+      # correctly. Skips cleanly if the runner has no WebGL2.
+      - name: Context persistence
+        run: npm run check:context

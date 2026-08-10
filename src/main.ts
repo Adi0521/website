@@ -12,6 +12,14 @@ import { pickTier } from "./gl/quality";
  * Then Phase 3 (routing + focus pull) BEFORE any project content.
  */
 
+// Phase 3 scaffolding: /check/* runs the context-persistence harness instead
+// of the scene. Delete this branch and src/check/ once a router is chosen.
+// Dev-only: the guard is statically false in a production build, so the
+// harness is tree-shaken out rather than shipped as a live /check/ route.
+if (import.meta.env.DEV && location.pathname.startsWith("/check/")) {
+  import("./check/context-check").then((m) => m.run());
+}
+
 const tier = pickTier();
 const waves = new WaveScheduler(DEFAULT_WAVES);
 
