@@ -1,0 +1,17 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - name: Install glslang
+        run: sudo apt-get update -qq && sudo apt-get install -y glslang-tools
+      - run: npm ci
+      - name: Validate shaders
+        run: npm run validate
+      - name: Typecheck and build
+        run: npm run build

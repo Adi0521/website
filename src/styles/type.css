@@ -1,0 +1,31 @@
+/* Self-hosted, no CDN request. See public/fonts/README.md for sources.
+   Display  Mattone       Collletttivo   OFL
+   Body     Hanken Grotesk Google Fonts  OFL
+   Mono     Sligoil       Velvetyne      OFL                                */
+
+@font-face{
+  font-family:"Mattone"; src:url("/fonts/Mattone-Regular.woff2") format("woff2");
+  font-weight:400; font-display:swap;
+}
+@font-face{
+  font-family:"Mattone"; src:url("/fonts/Mattone-Bold.woff2") format("woff2");
+  font-weight:700; font-display:swap;
+}
+@font-face{
+  font-family:"HankenGrotesk"; src:url("/fonts/HankenGrotesk-Variable.woff2") format("woff2");
+  font-weight:100 900; font-display:swap;
+}
+@font-face{
+  font-family:"Sligoil"; src:url("/fonts/Sligoil-Micro.woff2") format("woff2");
+  font-weight:400; font-display:swap;
+}
+
+:root{
+  --display:"Mattone", ui-sans-serif, system-ui, sans-serif;
+  --body:"HankenGrotesk", ui-sans-serif, system-ui, sans-serif;
+  --mono:"Sligoil", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+body{ font-family:var(--body); line-height:var(--rhythm); }
+h1,h2,h3{ font-family:var(--display); font-weight:700; letter-spacing:-0.01em; }
+.util{ font-family:var(--mono); text-transform:uppercase; letter-spacing:.18em; font-size:.72rem; }

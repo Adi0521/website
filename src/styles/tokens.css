@@ -1,0 +1,17 @@
+:root{
+  /* Sand shadows are blue: sunlit sand is warm, shadowed sand is lit by the
+     sky dome. Warm surface against cool shadow is what makes sand read as
+     sand — and it is also the way out of the cream-and-terracotta palette
+     that every generated portfolio lands on. */
+  --sand-lit:     #EDDCB8;
+  --sand-shadow:  #5C7A99;
+  --sea-shallow:  #3298B0;
+  --sea-deep:     #134F92;
+  --sun-rim:      #FFE9B0;
+  --foam:         #F7FBF9;
+  --sea:          #3E8F84;   /* UI accent only */
+  --ink:          #0d1520;
+
+  --measure: 68ch;
+  --rhythm: 1.55;
+}
