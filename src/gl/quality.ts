@@ -12,7 +12,11 @@ export interface Tier {
 }
 
 export const TIERS: Record<string, Tier> = {
-  cinematic: { name: "cinematic", field: 2048, steps: 128, dpr: 2.0, post: "full"  },
+  // dpr 1.5 rather than the 2.0 in the PRD §11 table. That table is marked
+  // provisional and its ~120fps came from the prototype, which capped DPR at
+  // 1.4 — so 2.0 was never measured, and it is four times the fragments of 1.0
+  // in the most expensive shader here. Raise it back if the softness shows.
+  cinematic: { name: "cinematic", field: 2048, steps: 128, dpr: 1.5, post: "full"  },
   high:      { name: "high",      field: 1500, steps:  96, dpr: 1.5, post: "bloom" },
   standard:  { name: "standard",  field:  768, steps:  48, dpr: 1.0, post: "grain" },
 };

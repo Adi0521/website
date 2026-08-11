@@ -278,6 +278,73 @@ try {
     `patch at z ${scroll.patch.toFixed(2)}, camera at z ${scroll.z1.toFixed(2)}`,
   );
 
+  // Lateral swash. Measured through the SIMULATION's wetness channel, not the
+  // picture: it proves the shared wave chunk bends the waterline for the sim
+  // and the renderer alike, which is the invariant that matters. Differential,
+  // so it does not depend on anything else that varies across the beach.
+  const lat = await page.evaluate(() => {
+    const b = window.__beach;
+    b.stop();
+    const gl = b.gl;
+
+    // Waterline row per column, across a band spanning the swash zone. Its
+    // spread is the thing being asked about: a scalar swash puts every column's
+    // waterline at the same height, give or take whatever the baked ripples
+    // contribute underneath.
+    const waterlineSpread = (swashLateral) => {
+      b.config.water.swashLateral = swashLateral;
+      b.field.setOrigin(0, 0);
+      b.field.reset();
+      // Hold the wave still, mid-reach, and kill the travelling swell so the
+      // only thing that can vary along the beach is the swash itself.
+      b.waves.amp = 0;
+      b.waves.phase = 0;
+      b.waves.swashBody = 0.55;
+      b.waves.swashFilm = 0.55;
+      for (let i = 0; i < 8; i++) b.field.step(0.016, null, b.waves, 0);
+
+      const lo = Math.round(b.field.worldToField(0, -0.2)[1] * b.field.height);
+      const hi = Math.round(b.field.worldToField(0, 1.4)[1] * b.field.height);
+      const rows = hi - lo;
+      const W = b.field.width;
+      const fb = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.field.texture, 0);
+      const px = new Float32Array(W * rows * 4);
+      gl.readPixels(0, lo, W, rows, gl.RGBA, gl.FLOAT, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb);
+
+      const edge = [];
+      for (let x = 0; x < W; x++) {
+        let top = -1;
+        for (let y = 0; y < rows; y++) if (px[(y * W + x) * 4 + 2] > 0.5) top = y;
+        if (top >= 0) edge.push(top);
+      }
+      if (edge.length < W * 0.5) return { sd: 0, covered: edge.length / W };
+      const mean = edge.reduce((a, v) => a + v, 0) / edge.length;
+      const sd = Math.sqrt(edge.reduce((a, v) => a + (v - mean) ** 2, 0) / edge.length);
+      // Rows to world Z, so the number means something outside this texture.
+      return { sd: (sd / b.field.height) * 2 * 2.6, covered: edge.length / W };
+    };
+
+    const shipped = b.config.water.swashLateral;
+    const straight = waterlineSpread(0);
+    const bent = waterlineSpread(shipped);
+    b.config.water.swashLateral = shipped;
+    b.waves.swashBody = 0;
+    b.waves.swashFilm = 0;
+    return { straight, bent, shipped };
+  });
+
+  check(
+    "lateral variation bends the waterline",
+    lat.bent.sd > lat.straight.sd * 1.5,
+    `swashLateral ${lat.shipped}: waterline spread ${lat.straight.sd.toFixed(3)} → ` +
+      `${lat.bent.sd.toFixed(3)} world units ` +
+      `(${(lat.bent.sd / Math.max(lat.straight.sd, 1e-6)).toFixed(1)}× the baked-ripple floor)`,
+  );
+
   // The look cannot be judged here — SwiftShader collapses the value noise to a
   // constant, so the baked ripples are absent in the prototype too. What CAN be
   // asserted is that the ported sim path writes the shape PRD §6.2 specifies:
@@ -286,6 +353,9 @@ try {
   const stamp = await page.evaluate(() => {
     const b = window.__beach;
     b.stop(); // take the loop out of the way so the step count is exact
+    // Still water, explicitly: the swash reach now varies along the beach, and
+    // a wave arriving mid-test would scrub the mark being measured.
+    b.waves.swashBody = 0; b.waves.swashFilm = 0; b.waves.amp = 0;
     b.field.reset();
     const brush = {
       kind: "press", a: [0.5, 0.5], b: [0.5, 0.5],
@@ -340,6 +410,7 @@ try {
   const clip = await page.evaluate(() => {
     const b = window.__beach;
     b.stop();
+    b.waves.swashBody = 0; b.waves.swashFilm = 0; b.waves.amp = 0;
     b.field.setOrigin(0, 0);
     b.field.reset();
     b.field.step(0.016, null, b.waves, 0);

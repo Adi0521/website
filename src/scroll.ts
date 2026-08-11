@@ -22,9 +22,10 @@ import { beachHeight } from "./sand/params";
 
 export interface ScrollCameraOptions {
   /**
-   * World Z at the top of the page. Clear of the swash zone: the water reaches
-   * about z=1.0 at full surge, and a station inside that has its sand wiped by
-   * every wave.
+   * World Z at the top of the page. Clear of the swash zone, and that bound
+   * moved: with `swashLateral` at 0.7 the reach varies up to 1.7× along the
+   * beach, so the water now gets to z≈1.76 rather than z≈1.0. A station inside
+   * that has its sand wiped by every wave (§7.6).
    */
   startZ: number;
   /**
@@ -48,7 +49,7 @@ export interface ScrollCameraOptions {
 }
 
 export const DEFAULT_SCROLL: ScrollCameraOptions = {
-  startZ: 1.5,
+  startZ: 2.0,
   endZ: 7.0,
   arc: 0.18, // ~10° end to end
   ease: 6,

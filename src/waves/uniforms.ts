@@ -31,4 +31,5 @@ export function applyWaveUniforms(
   p.f("uSurge", water.surge);
   p.f("uSwash", waves.swashBody);
   p.f("uSwashFilm", waves.swashFilm);
+  p.f("uSwashLat", water.swashLateral);
 }

@@ -253,10 +253,16 @@ export class Beach {
       return;
     }
 
-    // Pacing. The 1ms slack matters: without it a 60Hz display whose frames
-    // land a hair early would fail the test every other frame and render at 30.
+    // Pacing, with enough slack to be jitter-proof.
+    //
+    // A 1ms slack is not enough. On a 60Hz display the cap and the refresh are
+    // the same rate, so any frame arriving even fractionally early gets
+    // skipped, and the next one lands a full 33ms later — a dropped frame, and
+    // a visible stutter in anything sweeping across the screen, which on this
+    // page is the waterline. 4ms swallows normal RAF jitter while still
+    // halving a 120Hz display, which is the only case the cap exists for.
     const interval = 1000 / (this.focused ? this.maxFps : UNFOCUSED_FPS);
-    if (now - this.lastRender < interval - 1) return;
+    if (now - this.lastRender < interval - 4) return;
     this.lastRender = now;
 
     const elapsed = (now - this.last) / 1000;

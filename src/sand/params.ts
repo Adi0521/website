@@ -56,6 +56,22 @@ export interface WaterParams {
   waveLen: number;
   /** How far up the beach the swash reaches. */
   surge: number;
+  /**
+   * How much the swash reach varies along the beach, as a fraction. Zero is
+   * the Phase 1 behaviour: one scalar swash, so the sheet arrives dead
+   * straight across the whole width and every wave looks identical along its
+   * length. Measured effect on how far the waterline wanders, in world units:
+   *
+   *     0     0.081   the baked ripples alone — this is the noise floor
+   *     0.25  0.073   lost in it
+   *     0.45  0.123
+   *     0.7   0.193   shipped
+   *     0.9   0.247
+   *
+   * Must stay below 1.0. At 1.0 the reach modulation touches zero and beyond
+   * it goes negative, which inverts the swash into a wave that sucks backwards.
+   */
+  swashLateral: number;
   /** How hard the body of water scrubs marks away. */
   waveErase: number;
   /** How fast wet sand dries back. */
@@ -91,7 +107,7 @@ export const DEFAULT_SAND: SandConfig = {
   bake: { ripAmp: 0.115, ripScale: 48, ripAngle: 0.42, duneAmp: 0.2 },
   water: {
     seaLevel: 0, shoreZ: 0, slope: 0.085, waveLen: 1.5,
-    surge: 0.088, waveErase: 4.2, dryRate: 0.12, foam: 1.0,
+    surge: 0.088, swashLateral: 0.7, waveErase: 4.2, dryRate: 0.12, foam: 1.0,
   },
   look: {
     relief: 1.0, sparkle: 0.55, sunEl: 0.17, sunAz: 2.35,
