@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "validate": "node tools/validate-shaders.mjs",
     "test:sim": "node tools/sim-unit.mjs",
-    "check:context": "node tools/context-check.mjs"
+    "check:context": "node tools/context-check.mjs",
+    "smoke": "node tools/smoke.mjs"
   },
   "devDependencies": {
   "puppeteer": "^24.15.0",

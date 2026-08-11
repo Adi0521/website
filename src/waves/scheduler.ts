@@ -18,6 +18,18 @@ export interface WaveParams {
   amp: number;        // base swell height
 }
 
+/**
+ * Multiplier on how long the uprush takes. 1.0 is the Phase 1 prototype's
+ * timing, where an isolated wave runs up in about 2.2s.
+ *
+ * This scales every wave uniformly rather than flattening them toward a fixed
+ * duration, so the §7.3 coupling survives: build time is drawn from the same
+ * hash as the easing exponent, which is what makes slow waves swell in while
+ * quick ones snap up, and that correlation is what reads as intentional rather
+ * than randomised. Reach and drain are drawn separately and are unaffected.
+ */
+const UPRUSH = 1.4;
+
 const hash1 = (n: number): number => {
   const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
@@ -41,7 +53,7 @@ export function swashAt(t: number, drainExp: number, p: WaveParams): number {
     const r3 = hash1(n * 0.57 + 27.9), r4 = hash1(n * 3.31 + 41.1);
     const T = (n + (r1 - 0.5) * p.jitter) * period;  // uneven spacing
     const A = 0.34 + 0.66 * r2;                      // how far it reaches
-    const R = (0.14 + 0.42 * r3) * period;           // build time
+    const R = (0.14 + 0.42 * r3) * period * UPRUSH;  // build time
     const F = (0.60 + 0.90 * r4) * period;           // drain time
     const x = t - T;
     if (x < 0 || x > R + F) continue;

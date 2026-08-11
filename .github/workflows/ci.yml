@@ -31,6 +31,13 @@ jobs:
       - name: Sim unit tests
         run: npm run test:sim
 
+      # §14.4 — loads the page, asserts no runtime errors, and confirms both
+      # that a frame came out and that a press leaves a depression with a rim.
+      # It cannot judge the look: SwiftShader collapses the value noise to a
+      # constant, in the prototype exactly as in the engine.
+      - name: Scene smoke test
+        run: npm run smoke
+
       # Guards the assumption the two-mode design rests on: one WebGL context
       # for the whole session. Discrete state, so SwiftShader answers it
       # correctly. Skips cleanly if the runner has no WebGL2.

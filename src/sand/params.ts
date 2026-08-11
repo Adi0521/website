@@ -1,0 +1,108 @@
+/**
+ * Tunables, carried over from the prototype's slider defaults. These are the
+ * values Phase 1 was signed off on — the gate was "pressing into the sand
+ * feels right", and it is these numbers that felt right. Changing one is a
+ * look change, so they live in one table rather than scattered as literals.
+ */
+
+/** Sand half-extent in Z, world units. X scales with the field's aspect. */
+export const DOMAIN = 2.6;
+
+/**
+ * Height texel to world units. The 0.06 × 2.4 factoring is kept from the
+ * prototype because `relief` is a user-facing 0..1-ish dial and the product of
+ * the other two is what makes a 0.6 stamp a believable few millimetres.
+ */
+export const heightToWorld = (relief: number): number => 0.06 * relief * 2.4;
+
+/** Transport model — PRD §6.2. Slumping moves sand; it never deletes it. */
+export interface TransportParams {
+  /** Very slow global drift to rest. Keeps long sessions bounded. */
+  decay: number;
+  /** Wind smoothing, so fine detail softens before gross shape. */
+  smooth: number;
+  /** Slump rate. Clamped in-shader below the diffusion stability limit. */
+  slump: number;
+  /** Angle of repose, as a height difference between neighbours. */
+  repose: number;
+  /** Loose grain settling into hollows. Not conservative — wind imports it. */
+  infill: number;
+  /** Seconds a mark holds before filling. Freshly pressed sand is compacted. */
+  delay: number;
+}
+
+/** Default brush shape. Per-brush overrides arrive with the agent system. */
+export interface BrushParams {
+  radius: number;
+  depth: number;
+  /** Rim height as a fraction of depth. Pressed sand pushes *up* at the edge. */
+  rim: number;
+}
+
+/** The baked static layer: ripples and dunes, regenerated only on resize. */
+export interface BakeParams {
+  ripAmp: number;
+  ripScale: number;
+  ripAngle: number;
+  duneAmp: number;
+}
+
+/** Water — PRD §7. `interval`, `jitter`, `drain`, `sizeVar` live on WaveParams. */
+export interface WaterParams {
+  seaLevel: number;
+  shoreZ: number;
+  /** Beach ramp gradient. Shallow, so a small level change sweeps a long way. */
+  slope: number;
+  waveLen: number;
+  /** How far up the beach the swash reaches. */
+  surge: number;
+  /** How hard the body of water scrubs marks away. */
+  waveErase: number;
+  /** How fast wet sand dries back. */
+  dryRate: number;
+  foam: number;
+}
+
+/** Look — PRD §5. The low sun is a technical requirement, not a mood. */
+export interface LookParams {
+  relief: number;
+  sparkle: number;
+  /** Sun elevation. Grazing: raise it and the surface flattens into plastic. */
+  sunEl: number;
+  sunAz: number;
+  sky: number;
+  fog: number;
+  exposure: number;
+  /** Applied after tone mapping, luminance-preserving. */
+  sat: number;
+}
+
+export interface SandConfig {
+  transport: TransportParams;
+  brush: BrushParams;
+  bake: BakeParams;
+  water: WaterParams;
+  look: LookParams;
+}
+
+export const DEFAULT_SAND: SandConfig = {
+  transport: { decay: 0.02, smooth: 0.6, slump: 10, repose: 0.012, infill: 0.55, delay: 1.2 },
+  brush: { radius: 0.024, depth: 0.34, rim: 0.42 },
+  bake: { ripAmp: 0.115, ripScale: 48, ripAngle: 0.42, duneAmp: 0.2 },
+  water: {
+    seaLevel: 0, shoreZ: 0, slope: 0.085, waveLen: 1.5,
+    surge: 0.088, waveErase: 4.2, dryRate: 0.12, foam: 1.0,
+  },
+  look: {
+    relief: 1.0, sparkle: 0.55, sunEl: 0.17, sunAz: 2.35,
+    sky: 0.6, fog: 0.055, exposure: 0.95, sat: 1.36,
+  },
+};
+
+/** Debug visualisations, kept from the prototype. 0 is the shipped view. */
+export const enum DebugView {
+  Beauty = 0,
+  Height = 1,
+  Normals = 2,
+  Disturbance = 3,
+}

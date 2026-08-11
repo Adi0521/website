@@ -1,0 +1,35 @@
+/* The canvas is the background for the whole session — one element, one
+   context, never re-created on navigation. Everything else stacks over it. */
+
+html, body { height: 100%; }
+body { margin: 0; background: var(--ink); color: var(--sand-lit); }
+
+#scene {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+  /* The sand is drawn with a pointer, so the canvas wants the events. Panels
+     and text above it opt back out with their own pointer-events. */
+  touch-action: none;
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+  /* Nothing in the shell is interactive yet, and a full-bleed transparent
+     layer over the canvas would swallow every pointer event before the sand
+     ever saw it. Children turn this back on. */
+  pointer-events: none;
+}
+
+#app > * { pointer-events: auto; }
+
+/* No WebGL2, no float targets, or a lost context: main.ts removes the canvas
+   and flags the root, so the page falls back to being a page. */
+:root[data-scene="off"] body {
+  background: var(--sand-lit);
+  color: var(--ink);
+}

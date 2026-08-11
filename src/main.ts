@@ -1,14 +1,16 @@
-import { WaveScheduler, DEFAULT_WAVES } from "./waves/scheduler";
-import { pickTier } from "./gl/quality";
+import { Beach } from "./beach";
+import { GLUnsupported } from "./gl/context";
+import { ShaderError } from "./gl/program";
 
 /**
- * PHASE 2 — port the prototype engine into src/gl and src/sand.
- * `prototype/sand-phase1.html` is the working reference; diff against it.
+ * PHASE 2 — engine ported from prototype/sand-phase1.html into src/gl and
+ * src/sand. Two gaps remain before the phase closes, both camera work:
  *
- * Order that matters:
- *   1. context + programs + ping-pong field   (straight port)
- *   2. scroll-driven camera                   (never built — Phase 2 gap)
- *   3. camera-following clipmap               (never built — Phase 2 gap)
+ *   1. Scroll-driven camera — never built. The exit condition is that
+ *      scrolling an empty beach is pleasant on its own, and it is untested.
+ *   2. Camera-following clipmap — the field is a bounded patch and
+ *      interaction stops at its edge. Dollying makes that worse.
+ *
  * Then Phase 3 (routing + focus pull) BEFORE any project content.
  */
 
@@ -18,20 +20,35 @@ import { pickTier } from "./gl/quality";
 // harness is tree-shaken out rather than shipped as a live /check/ route.
 if (import.meta.env.DEV && location.pathname.startsWith("/check/")) {
   import("./check/context-check").then((m) => m.run());
+} else {
+  boot();
 }
 
-const tier = pickTier();
-const waves = new WaveScheduler(DEFAULT_WAVES);
+function boot(): void {
+  const canvas = document.getElementById("scene") as HTMLCanvasElement | null;
+  if (!canvas) throw new Error("#scene canvas missing");
 
-console.info("[beach] tier", tier.name, "— engine port pending, see prototype/");
-
-let last = performance.now(), t = 0;
-function frame() {
-  requestAnimationFrame(frame);
-  const now = performance.now();
-  const dt = Math.min((now - last) / 1000, 0.05);
-  last = now; t += dt;
-  waves.step(dt, t);
-  // TODO: sim pass, render pass
+  try {
+    const beach = new Beach({ canvas, onUnavailable: fallback });
+    beach.start();
+    console.info(
+      `[beach] ${beach.tier.name} — field ${beach.field.width}×${beach.field.height}`,
+    );
+    Object.assign(window, { __beach: beach });
+  } catch (err) {
+    fallback(err as Error);
+  }
 }
-frame();
+
+/**
+ * PRD §12 requires the content to stand without the canvas. All of it is real
+ * DOM already, so the honest failure is to remove the canvas and let the page
+ * be a page — not to show an apology over an empty beach.
+ */
+function fallback(err: GLUnsupported | ShaderError | Error): void {
+  document.documentElement.dataset.scene = "off";
+  const canvas = document.getElementById("scene");
+  if (canvas) canvas.remove();
+  const detail = err instanceof ShaderError ? `${err.stage}: ${err.log}` : err.message;
+  console.warn("[beach] scene unavailable —", detail);
+}
