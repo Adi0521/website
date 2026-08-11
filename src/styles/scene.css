@@ -12,8 +12,11 @@ body { margin: 0; background: var(--ink); color: var(--sand-lit); }
   display: block;
   z-index: 0;
   /* The sand is drawn with a pointer, so the canvas wants the events. Panels
-     and text above it opt back out with their own pointer-events. */
-  touch-action: none;
+     and text above it opt back out with their own pointer-events.
+     `pan-y` rather than `none`: scroll drives the camera, so a touch drag has
+     to be able to scroll the page. Horizontal drags still reach the sand.
+     Whether that is the right split on a phone is PRD §15 Q9, still open. */
+  touch-action: pan-y;
 }
 
 #app {
@@ -26,6 +29,14 @@ body { margin: 0; background: var(--ink); color: var(--sand-lit); }
 }
 
 #app > * { pointer-events: auto; }
+
+/* The scroll spacer covers the viewport many times over, so it must NOT take
+   pointer events back — it would sit between the pointer and the sand for the
+   entire length of the page. */
+#track {
+  height: 420vh;
+  pointer-events: none;
+}
 
 /* No WebGL2, no float targets, or a lost context: main.ts removes the canvas
    and flags the root, so the page falls back to being a page. */

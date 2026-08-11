@@ -1,6 +1,7 @@
 import { Beach } from "./beach";
 import { GLUnsupported } from "./gl/context";
 import { ShaderError } from "./gl/program";
+import { ScrollCamera } from "./scroll";
 
 /**
  * PHASE 2 — engine ported from prototype/sand-phase1.html into src/gl and
@@ -30,11 +31,15 @@ function boot(): void {
 
   try {
     const beach = new Beach({ canvas, onUnavailable: fallback });
+    // PRD §12: reduced motion means no camera motion either, so the scroll
+    // driver is not wired at all rather than wired and suppressed.
+    const scroll = beach.reducedMotion ? null : new ScrollCamera(beach);
+    if (scroll) beach.onFrame = (dt) => scroll.update(dt);
     beach.start();
     console.info(
       `[beach] ${beach.tier.name} — field ${beach.field.width}×${beach.field.height}`,
     );
-    Object.assign(window, { __beach: beach });
+    Object.assign(window, { __beach: beach, __scroll: scroll });
   } catch (err) {
     fallback(err as Error);
   }

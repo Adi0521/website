@@ -34,6 +34,10 @@ export class SandField {
   private needsBake = true;
   private resetPending = false;
 
+  /** World XZ centre of the interactive patch, snapped to the texel grid. */
+  private origin: [number, number] = [0, 0];
+  private originAtLastStep: [number, number] = [0, 0];
+
   width = 2;
   height = 2;
 
@@ -107,10 +111,28 @@ export class SandField {
     this.config = config;
   }
 
+  get center(): [number, number] {
+    return [this.origin[0], this.origin[1]];
+  }
+
+  /**
+   * Moves the patch to follow the camera.
+   *
+   * Snapped to whole texels, and that is the whole trick: an unsnapped origin
+   * means every step resamples the field at a fractional offset, and bilinear
+   * filtering quietly blurs every mark a little more each frame until a
+   * footprint dissolves purely from the camera moving past it.
+   */
+  setOrigin(x: number, z: number): void {
+    const tx = (2 * this.domainX) / this.width;
+    const tz = (2 * DOMAIN) / this.height;
+    this.origin = [Math.round(x / tx) * tx, Math.round(z / tz) * tz];
+  }
+
   /** World XZ to field UV. Returns null outside the interactive patch. */
   worldToField(x: number, z: number): [number, number] | null {
-    const u = x / (2 * this.domainX) + 0.5;
-    const v = z / (2 * DOMAIN) + 0.5;
+    const u = (x - this.origin[0]) / (2 * this.domainX) + 0.5;
+    const v = (z - this.origin[1]) / (2 * DOMAIN) + 0.5;
     // Just inside the border: a stamp centred on the very edge would be half
     // clamped, and the asymmetry reads as the mark sliding off the patch.
     if (u < 0.005 || u > 0.995 || v < 0.005 || v > 0.995) return null;
@@ -118,7 +140,10 @@ export class SandField {
   }
 
   fieldToWorld(u: number, v: number): [number, number] {
-    return [(u - 0.5) * 2 * this.domainX, (v - 0.5) * 2 * DOMAIN];
+    return [
+      this.origin[0] + (u - 0.5) * 2 * this.domainX,
+      this.origin[1] + (v - 0.5) * 2 * DOMAIN,
+    ];
   }
 
   private bake(): void {
@@ -164,6 +189,15 @@ export class SandField {
     this.simProg.f("uAspect", this.width / this.height);
     this.simProg.f("uDt", dt);
 
+    // How far the patch travelled since the last step, in uv. Whole texels by
+    // construction, so the resample is exact.
+    this.simProg.f2("uOrigin", this.origin[0], this.origin[1]);
+    this.simProg.f2(
+      "uShift",
+      (this.origin[0] - this.originAtLastStep[0]) / (2 * this.domainX),
+      (this.origin[1] - this.originAtLastStep[1]) / (2 * DOMAIN),
+    );
+
     this.simProg.f("uDecay", transport.decay);
     this.simProg.f("uSmooth", transport.smooth);
     this.simProg.f("uSlump", transport.slump);
@@ -193,6 +227,7 @@ export class SandField {
     this.simProg.f("uReset", this.resetPending ? 1 : 0);
     drawFullscreen(gl);
     this.resetPending = false;
+    this.originAtLastStep = [this.origin[0], this.origin[1]];
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
     const tmp = this.front;

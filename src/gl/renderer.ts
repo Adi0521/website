@@ -58,6 +58,7 @@ export class BeachRenderer {
 
     this.prog.f2("uTexel", 1 / field.width, 1 / field.height);
     this.prog.f2("uRes", canvas.width, canvas.height);
+    this.prog.f2("uOrigin", field.center[0], field.center[1]);
 
     this.prog.f3("uRo", c.ro[0], c.ro[1], c.ro[2]);
     this.prog.f3("uUu", c.uu[0], c.uu[1], c.uu[2]);

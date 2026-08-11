@@ -154,6 +154,79 @@ try {
     `${info.distinct} distinct colour buckets`,
   );
 
+  // Scroll owns the camera (PRD §3). Run before the field tests below, which
+  // stop the loop.
+  const scroll = await page.evaluate(async () => {
+    const b = window.__beach;
+    // Eye position and the ground under it, so "is the camera inside the
+    // beach" can be asked directly rather than inferred.
+    const eye = () => {
+      const c = b.camera, ce = Math.cos(c.elevation);
+      const p = [
+        c.target[0] + Math.cos(c.azimuth) * ce * c.distance,
+        c.target[1] + Math.sin(c.elevation) * c.distance,
+        c.target[2] + Math.sin(c.azimuth) * ce * c.distance,
+      ];
+      const w = b.config.water;
+      const raw = (p[2] - w.shoreZ) * w.slope;
+      const ground = Math.min(0.9, Math.max(-1.3, raw));
+      // `raw` past 0.9 means the ramp has clamped and the eye is over the flat
+      // plateau, where the near foreground stops being a beach and becomes a shelf.
+      return { y: p[1], ground, clear: p[1] - ground, onSlope: raw < 0.9 };
+    };
+
+    const z0 = b.camera.target[2], az0 = b.camera.azimuth;
+    const clear0 = eye().clear;
+    scrollTo(0, document.documentElement.scrollHeight);
+    await new Promise((r) => setTimeout(r, 1600)); // let the easing settle
+    const e1 = eye();
+    return {
+      z0, az0, clear0,
+      z1: b.camera.target[2],
+      az1: b.camera.azimuth,
+      targetY: b.camera.target[1],
+      clear1: e1.clear,
+      onSlope: e1.onSlope,
+      eyeZ: e1.y,
+      patch: b.field.center[1],
+      scrollable: document.documentElement.scrollHeight - innerHeight,
+    };
+  });
+
+  check("the page scrolls", scroll.scrollable > 100, `${scroll.scrollable}px of travel`);
+  check(
+    "scrolling retreats up the dry beach",
+    scroll.z1 - scroll.z0 > 1,
+    `z ${scroll.z0.toFixed(2)} → ${scroll.z1.toFixed(2)}`,
+  );
+  check(
+    "scrolling sweeps the azimuth",
+    Math.abs(scroll.az1 - scroll.az0) > 0.01,
+    `${scroll.az0.toFixed(3)} → ${scroll.az1.toFixed(3)} rad ` +
+      `(${(((scroll.az1 - scroll.az0) * 180) / Math.PI).toFixed(1)}°)`,
+  );
+  // The ramp rises as you travel up it. A camera whose look-at point stayed at
+  // y=0 would be underground well before the top, and the frame would fill
+  // with sand from the inside.
+  check(
+    "the camera rides the ramp instead of sinking into it",
+    scroll.clear0 > 0.2 && scroll.clear1 > 0.2,
+    `eye clears the sand by ${scroll.clear0.toFixed(2)} at the top, ` +
+      `${scroll.clear1.toFixed(2)} at the bottom (target y ${scroll.targetY.toFixed(2)})`,
+  );
+  check(
+    "the travel stays on the sloped beach",
+    scroll.onSlope,
+    scroll.onSlope
+      ? "the eye never reaches the ramp's clamp"
+      : "endZ puts the eye over the flat plateau past z≈10.6",
+  );
+  check(
+    "the sand patch follows the camera",
+    Math.abs(scroll.patch - scroll.z1) < 0.1,
+    `patch at z ${scroll.patch.toFixed(2)}, camera at z ${scroll.z1.toFixed(2)}`,
+  );
+
   // The look cannot be judged here — SwiftShader collapses the value noise to a
   // constant, so the baked ripples are absent in the prototype too. What CAN be
   // asserted is that the ported sim path writes the shape PRD §6.2 specifies:
@@ -208,6 +281,67 @@ try {
     "the press marks the sand as disturbed",
     stamp.disturbance > 0.1,
     `G channel ${stamp.disturbance.toFixed(3)}`,
+  );
+
+  // The clipmap's whole job: the patch travels with the camera, but the sand
+  // stays where it was pressed. If the shift has the wrong sign the mark rides
+  // along with the patch, which looks fine in isolation and is completely wrong.
+  const clip = await page.evaluate(() => {
+    const b = window.__beach;
+    b.stop();
+    b.field.setOrigin(0, 0);
+    b.field.reset();
+    b.field.step(0.016, null, b.waves, 0);
+
+    // Up the beach, clear of the swash zone — at the waterline the wave would
+    // scrub the mark away mid-test.
+    const WZ = 1.5;
+    const uv = b.field.worldToField(0, WZ);
+    const brush = {
+      kind: "press", a: uv, b: uv,
+      radius: 0.024, depth: 0.34, rim: 0.42, pressure: 1.0,
+    };
+    for (let i = 0; i < 24; i++) b.field.step(0.016, brush, b.waves, 0);
+
+    const gl = b.gl;
+    const fb = gl.createFramebuffer();
+    const row = Math.round(uv[1] * b.field.height);
+    const readRow = () => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.field.texture, 0);
+      const px = new Float32Array(b.field.width * 4);
+      gl.readPixels(0, row, b.field.width, 1, gl.RGBA, gl.FLOAT, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      let col = -1, lo = 0;
+      for (let i = 0; i < b.field.width; i++) {
+        if (px[i * 4] < lo) { lo = px[i * 4]; col = i; }
+      }
+      return { col, lo };
+    };
+
+    const before = readRow();
+
+    // Dolly the patch a whole number of texels along the shore.
+    const texel = (2 * b.field.domainX) / b.field.width;
+    const TEXELS = 20;
+    b.field.setOrigin(TEXELS * texel, 0);
+    for (let i = 0; i < 3; i++) b.field.step(0.016, null, b.waves, 0);
+    const after = readRow();
+    gl.deleteFramebuffer(fb);
+
+    return { before, after, expected: -TEXELS, moved: after.col - before.col };
+  });
+
+  check(
+    "a mark survives the patch moving",
+    clip.after.lo < -0.05,
+    `depth ${clip.after.lo.toFixed(3)} after the dolly`,
+  );
+  check(
+    "the mark stays put in the world",
+    Math.abs(clip.moved - clip.expected) <= 1,
+    `patch moved +20 texels, mark moved ${clip.moved} texels in the field ` +
+      `(expected ${clip.expected} — equal and opposite)`,
   );
 
   if (shotPath) {

@@ -14,7 +14,12 @@
        sand keeping its state when you navigate back, both depend on one
        WebGL context staying alive for the whole session. -->
   <canvas id="scene" aria-hidden="true"></canvas>
-  <div id="app"></div>
+  <div id="app">
+    <!-- Phase 2 exit condition: scrolling an empty beach should be pleasant on
+         its own. Until the About sections exist, this spacer is what there is
+         to scroll. -->
+    <div id="track" aria-hidden="true"></div>
+  </div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

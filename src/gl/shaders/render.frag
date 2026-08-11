@@ -3,7 +3,7 @@ precision highp float;
 in vec2 vUv;
 out vec4 outC;
 uniform sampler2D uField, uStatic;
-uniform vec2  uTexel, uRes;
+uniform vec2  uTexel, uRes, uOrigin;
 uniform vec3  uRo, uUu, uVv, uWw;
 uniform vec2  uCursorW;
 uniform float uFov, uWpt, uRelief, uSparkle, uSky;
@@ -37,19 +37,23 @@ float fbm2(vec2 p){
   return s;
 }
 
-vec2 w2uv(vec2 xz){ return vec2(xz.x/(2.0*uDX)+0.5, xz.y/(2.0*uDZ)+0.5); }
+// the interactive patch travels with the camera, so its uv is relative to
+// uOrigin. the baked layer does not travel — it is locked to the world and
+// wraps, which is what lets the beach extend past the patch in every
+// direction while the ripples stay put on the ground.
+vec2 w2uv(vec2 xz){ return (xz - uOrigin)/vec2(2.0*uDX, 2.0*uDZ) + 0.5; }
+vec2 s2uv(vec2 xz){ return xz/vec2(2.0*uDX, 2.0*uDZ) + 0.5; }
 
 // the interactive field is a finite texture. sampling past its edge returns
 // the nearest texel repeated forever, so a mark made at the boundary would
 // extrude outward as an infinite stripe. fade its contribution out instead.
-// the baked ripples use MIRRORED_REPEAT, so the beach itself keeps going.
 float patchMask(vec2 xz){
-  vec2 a = abs(vec2(xz.x/uDX, xz.y/uDZ));
+  vec2 d = xz - uOrigin;
+  vec2 a = abs(vec2(d.x/uDX, d.y/uDZ));
   return (1.0-smoothstep(0.78,0.99,a.x))*(1.0-smoothstep(0.78,0.99,a.y));
 }
 float heightAt(vec2 xz){
-  vec2 uv = w2uv(xz);
-  return texture(uStatic, uv).r + texture(uField, uv).r*patchMask(xz);
+  return texture(uStatic, s2uv(xz)).r + texture(uField, w2uv(xz)).r*patchMask(xz);
 }
 float terrainY(vec2 xz){ return heightAt(xz)*uHtw + beachY(xz.y); }
 float sceneY(vec2 xz){ return max(terrainY(xz), waterY(xz)); }
@@ -192,7 +196,7 @@ void main(){
                  + heightAt(p.xz + vec2(0.0,-7.0*ew));
       float ao = clamp(1.0 - (wide*0.25 - h0)*2.6, 0.25, 1.0);
 
-      float grain = texture(uStatic, uv).g;
+      float grain = texture(uStatic, s2uv(p.xz)).g;
       vec3 albedo = SAND_LIT*(0.93 + 0.14*grain);
       albedo = mix(albedo, albedo*vec3(0.80,0.76,0.72), dst*0.55);
       // wet sand is darker: water fills the gaps between grains and stops them

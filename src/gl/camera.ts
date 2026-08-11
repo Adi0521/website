@@ -17,6 +17,12 @@ export interface CameraState {
   elevation: number;
   distance: number;
   fovDeg: number;
+  /**
+   * World point the camera orbits and looks at. Decoupling this from the
+   * origin is what lets the camera travel along the beach at all — and it is
+   * what the sand patch follows, so the interactive zone goes with it.
+   */
+  target: Vec3;
 }
 
 export interface CameraBasis {
@@ -39,15 +45,16 @@ const normalize = (a: Vec3): Vec3 => {
   return [a[0] / l, a[1] / l, a[2] / l];
 };
 
-/** Orbits the world origin, always looking at it. */
+/** Orbits `target`, always looking at it. */
 export function cameraBasis(c: CameraState): CameraBasis {
   const ce = Math.cos(c.elevation);
+  const t = c.target;
   const ro: Vec3 = [
-    Math.cos(c.azimuth) * ce * c.distance,
-    Math.sin(c.elevation) * c.distance,
-    Math.sin(c.azimuth) * ce * c.distance,
+    t[0] + Math.cos(c.azimuth) * ce * c.distance,
+    t[1] + Math.sin(c.elevation) * c.distance,
+    t[2] + Math.sin(c.azimuth) * ce * c.distance,
   ];
-  const ww = normalize([-ro[0], -ro[1], -ro[2]]);
+  const ww = normalize([t[0] - ro[0], t[1] - ro[1], t[2] - ro[2]]);
   const uu = normalize(cross(ww, [0, 1, 0]));
   const vv = cross(uu, ww);
   return { ro, uu, vv, ww, fov: 1 / Math.tan((c.fovDeg * Math.PI) / 360) };

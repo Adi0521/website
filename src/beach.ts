@@ -32,14 +32,20 @@ const DEFAULT_CAMERA: CameraState = {
   elevation: 0.23,
   distance: 2.9,
   fovDeg: 46,
+  target: [0, 0, 0],
 };
 
+/**
+ * Kept in WORLD space, not field uv. The patch moves under the pointer, so a
+ * uv held across frames would mean a different place on the beach each time —
+ * the brush would smear sideways whenever the camera travelled.
+ */
 interface Pointer {
-  u: number;
-  v: number;
+  x: number;
+  z: number;
   /** Previous position, so fast motion sweeps a segment and leaves no gaps. */
-  prevU: number;
-  prevV: number;
+  prevX: number;
+  prevZ: number;
   inside: boolean;
   valid: boolean;
   down: boolean;
@@ -70,8 +76,11 @@ export class Beach {
   private observer: IntersectionObserver | null = null;
 
   private ptr: Pointer = {
-    u: 0.5, v: 0.5, prevU: 0.5, prevV: 0.5, inside: false, valid: false, down: false,
+    x: 0, z: 0, prevX: 0, prevZ: 0, inside: false, valid: false, down: false,
   };
+
+  /** Called each frame before the sim steps. The scroll camera hangs here. */
+  onFrame: ((dt: number) => void) | null = null;
 
   /** Smoothed frames per second. 0 until the loop has run. */
   get fps(): number {
@@ -190,13 +199,24 @@ export class Beach {
     // behaviour, and the reason a struggling machine goes gently slow-motion
     // rather than juddering. MAX_DT is the same per-step stability bound the
     // catch-up plan respects, so there is one number, not two.
+    // Real elapsed, NOT the clamped sim dt. The camera is not a diffusion
+    // process and has no stability bound, so feeding it the clamp would make
+    // it ease more slowly the worse the frame rate gets — the camera would
+    // visibly lag the scrollbar on exactly the machines that can least afford
+    // it, while the sand kept its own correct pace.
+    this.onFrame?.(elapsed);
+
     const dt = Math.min(elapsed, MAX_DT);
+    // The patch follows the camera's look-at point, so the interactive zone
+    // travels with the view instead of being stranded at the world origin.
+    this.field.setOrigin(this.camera.target[0], this.camera.target[2]);
+
     this.time += dt;
     this.waves.step(dt, this.time);
     this.field.step(dt, this.brush(), this.waves, this.time);
 
-    this.ptr.prevU = this.ptr.u;
-    this.ptr.prevV = this.ptr.v;
+    this.ptr.prevX = this.ptr.x;
+    this.ptr.prevZ = this.ptr.z;
 
     this.renderer.render(
       this.field, this.camera, this.config, this.waves, this.time,
@@ -207,11 +227,16 @@ export class Beach {
   private brush(): Brush | null {
     const p = this.ptr;
     if (!p.inside || !p.valid) return null;
+    const b = this.field.worldToField(p.x, p.z);
+    if (!b) return null;
+    // If the previous point has since left the patch, collapse the segment to a
+    // point rather than sweeping from a clamped edge position.
+    const a = this.field.worldToField(p.prevX, p.prevZ) ?? b;
     const { radius, depth, rim } = this.config.brush;
     return {
       kind: "press",
-      a: [p.prevU, p.prevV],
-      b: [p.u, p.v],
+      a,
+      b,
       radius,
       depth,
       rim,
@@ -224,7 +249,7 @@ export class Beach {
   private cursor(): CursorState {
     const p = this.ptr;
     return {
-      world: this.field.fieldToWorld(p.u, p.v),
+      world: [p.x, p.z],
       visible: p.inside && p.valid,
       radius: this.config.brush.radius * 2 * DOMAIN,
     };
@@ -253,12 +278,14 @@ export class Beach {
       1 - (e.clientY - r.top) / r.height, // shader convention: Y up
       r.width / r.height,
     );
-    const uv = hit ? this.field.worldToField(hit[0], hit[1]) : null;
     this.ptr.inside = true;
-    this.ptr.valid = uv !== null;
-    if (uv) {
-      this.ptr.u = uv[0];
-      this.ptr.v = uv[1];
+    // Valid means "on the ground and inside the patch". Outside it there is
+    // nothing to press, and the cursor ring disappears to show where the
+    // interactive zone ends — which is exactly the edge the clipmap moves.
+    this.ptr.valid = hit !== null && this.field.worldToField(hit[0], hit[1]) !== null;
+    if (hit) {
+      this.ptr.x = hit[0];
+      this.ptr.z = hit[1];
     }
   }
 
@@ -279,8 +306,8 @@ export class Beach {
       this.ptr.down = false;
       // Snap the segment shut, or re-entering elsewhere sweeps a stripe across
       // the beach from wherever the pointer left.
-      this.ptr.prevU = this.ptr.u;
-      this.ptr.prevV = this.ptr.v;
+      this.ptr.prevX = this.ptr.x;
+      this.ptr.prevZ = this.ptr.z;
     });
 
     addEventListener("resize", () => {

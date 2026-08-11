@@ -99,6 +99,23 @@ export const DEFAULT_SAND: SandConfig = {
   },
 };
 
+/**
+ * Height of the bare beach ramp at a world Z.
+ *
+ * MIRRORS `beachY` in src/gl/shaders/common/wave.glsl. That chunk is shared by
+ * the simulation and the renderer precisely so they cannot disagree about the
+ * waterline — but the camera has to know the same shape on the CPU to hold a
+ * fixed height above the sand while it travels up the ramp, and shaders cannot
+ * answer questions for JavaScript.
+ *
+ * Only this one line is duplicated; the parameters themselves are shared. If
+ * `beachY` changes, change this with it. Drift here does not corrupt the
+ * waterline — it sinks the camera into the beach or floats it above.
+ */
+export function beachHeight(z: number, water: WaterParams): number {
+  return Math.min(0.9, Math.max(-1.3, (z - water.shoreZ) * water.slope));
+}
+
 /** Debug visualisations, kept from the prototype. 0 is the shipped view. */
 export const enum DebugView {
   Beauty = 0,
