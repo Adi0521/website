@@ -6,18 +6,22 @@
  * back. Both can be true only if the field is stepped forward on return, and
  * that step is where two constraints collide:
  *
- *   - §6.2 clamps the slump coefficient below the diffusion stability limit,
- *     and that limit is PER STEP. Handing the sim one 240-second dt after a
- *     four-minute read of a project page does not erode the field, it rings
- *     it. Every substep must stay at or under MAX_DT.
+ *   - Every rate in sim.frag is clamped per step — slump at 0.22, smoothing
+ *     at 0.9, infill at 0.5. Those clamps make a huge dt *stable*, which is
+ *     worth being precise about: handing the sim one 240-second step after a
+ *     four-minute read does not blow the field up, it quietly applies a single
+ *     step's worth of each process and calls four minutes done. Measured over
+ *     8s by tools/sim-unit.mjs: substeps erode 98% of a mark, one leap 58%,
+ *     and neither rings. So substepping buys the right AMOUNT of erosion.
  *
  *   - §10 wants the return transition eased and interruptible at ~600ms.
  *     Substepping 240 seconds honestly is 4,800 sim passes in the frame the
  *     transition starts, which is the stutter that budget exists to prevent.
  *
- * The §6.2 fill-in table resolves it. Marks are effectively gone by +8s:
+ * The fill-in curve resolves it. Measured at shipped defaults, a mark is
+ * effectively gone by +8s — 1.9% of its depth left:
  *
- *     pressed  -0.600     +3s  -0.192     +8s  -0.012
+ *     pressed  -0.339     +3s  -0.118     +8s  -0.007
  *
  * so simulated time past that point is work nobody can see. Capping catch-up
  * at CATCH_UP_CAP bounds the return to a fixed 160 passes while staying
@@ -25,10 +29,13 @@
  * few seconds. Short navigations fall under the cap and erode exactly.
  */
 
-/** Per-step ceiling. The §6.2 slump clamp is a per-step stability bound. */
+/**
+ * Per-step ceiling. Not a stability bound — sim.frag's own clamps handle that —
+ * but the step size at which those clamps stop truncating the physics.
+ */
 export const MAX_DT = 0.05;
 
-/** Simulated seconds past which the §6.2 fill-in curve has nothing left to show. */
+/** Simulated seconds past which the fill-in curve has nothing left to show. */
 export const CATCH_UP_CAP = 8;
 
 export interface CatchUpPlan {

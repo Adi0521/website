@@ -1,8 +1,10 @@
 # Beach — Personal Site PRD
 
-**Status:** Draft v0.3
+**Status:** Draft v0.4
 **Owner:** Arnav
-**Last updated:** August 10, 2026
+**Last updated:** August 11, 2026
+
+**v0.4.** Engine ported out of the prototype into `src/gl` and `src/sand`. Both Phase 2 gaps closed — scroll-driven camera and camera-following clipmap (§13). Measured numbers refreshed against the shipped engine: the §6.2 fill-in curve, the §7.3 wave sequence, and the §11 tier table, whose Cinematic DPR drops to 1.5. Tier auto-detection, a render cap and an unfocused throttle are built (§11). Swash reach now varies along the beach (§7.3). Verification gate restated against the tools that actually exist (§14).
 
 **v0.3.1.** Frame time measured: ~120fps vsync-capped on dev hardware even at maximum settings, so under 8.3ms worst case. The §6.3 props fork is resolved in favour of `gl_FragDepth`, and Cinematic becomes the desktop default. Performance drops from top risk to low-end tier calibration.
 
@@ -145,16 +147,18 @@ What is built instead, in order per frame:
 5. **Settle** — a very slow global drift, keeps long sessions bounded.
 6. **Stamp** — target-based, so holding still converges to a depth rather than digging a canyon.
 
-Measured fill-in at defaults, from the shipped shader:
+Measured fill-in at shipped defaults (`depth` 0.34), 1280×800 field, from `npm run test:sim`:
 
 ```
-pressed    -0.600  (rim +0.263)
-+1s        -0.569  (rim +0.247)   ← the delay holding
-+3s        -0.192  (rim +0.129)
-+8s        -0.012  (rim +0.035)
+pressed    -0.339  (rim +0.138)
++1s        -0.331  (rim +0.136)   ← the delay holding
++3s        -0.118  (rim +0.083)
++8s        -0.007  (rim +0.020)
 ```
 
 The rim dropping on the same schedule as the hole is the diagnostic that slumping is working rather than decay.
+
+Two caveats on comparing these numbers to anything. **The stamp converges to `-depth`**, so the absolute floor is whatever `depth` is set to — v0.3's table showed −0.600, which is the same curve normalised but taken at `depth` ≈ 0.6, not at the shipped default. **And the curve is resolution-dependent**: slumping compares neighbouring texels, so a finer field has smaller differences between them, fewer pairs past the angle of repose, and slower fill. The harness pins the viewport for this reason.
 
 **Fill delay** exists because freshly pressed sand is compacted; the delay is that packing giving way. It resets under the brush via channel A. **Timeline footprints will want a much longer delay than a general mark**, which argues for making delay per-brush rather than global in Phase 4.
 
@@ -233,13 +237,21 @@ Generated sequence at defaults:
 
 ```
  wave   arrives   gap    reach    build   drain
-   0      2.8s     -     0.61m    1.5s    18.0s
-   2     23.0s   10.9s   0.95m    4.2s    18.7s
-   4     51.9s   15.0s   0.93m    3.1s     8.3s
-   5     63.8s   11.9s   0.41m    2.8s    12.9s
+   0      2.8s     -     0.59m    2.9s    18.0s
+   1     12.1s    9.4s   0.59m    7.0s    11.1s
+   2     23.0s   10.9s   0.91m    7.3s    18.7s
+   3     36.9s   13.9s   0.52m    7.6s    10.9s
+   4     51.9s   15.0s   0.90m    5.5s     8.3s
+   5     63.8s   11.9s   0.39m    4.9s    12.9s
 ```
 
-**Critical: swash level varies only with time, not position, so it is computed once per frame on the CPU and passed as two uniforms.** Evaluating that randomisation per march step would cost thousands of hashes per pixel for a value constant across the frame. It also guarantees sim and renderer receive identical state.
+Build times are 1.4× the raw draw — the `UPRUSH` constant in the scheduler. At 1.0 an isolated wave ran up in about 2.2s, which read as snapping rather than swelling; at 1.4 it is about 3.4s. The cost is more overlap: a longer build means more waves are still draining when the next arrives, so fewer of them are cleanly separated.
+
+**Critical: the wave scheduler's swash level varies only with time, not position, so it is computed once per frame on the CPU and passed as two uniforms.** Evaluating that randomisation per march step would cost thousands of hashes per pixel for a value constant across the frame. It also guarantees sim and renderer receive identical state.
+
+**But a scalar swash arrives as a dead-straight line** across the whole beach, every wave identical along its length. The reach is therefore modulated laterally by `swashLateral` — a smooth two-sine function of world X, not a hash, so it costs one extra `sin` per march step and the scheduler stays on the CPU. It lives in the shared wave chunk, so the sand gets wet exactly where the water looks like it is. Measured effect on how far the waterline wanders, in world units: 0.081 at `swashLateral` 0 (the baked ripples alone), 0.123 at 0.45, 0.193 at the shipped 0.7. Below about 0.25 the effect is lost in the ripple noise floor; at 1.0 the modulation reaches zero and beyond it inverts the swash.
+
+One consequence for layout: at 0.7 the reach varies up to 1.7×, so the water gets to z≈1.76 rather than z≈1.0. The swash zone is that much wider than the nominal figure suggests.
 
 ### 7.4 Draining film
 
@@ -325,16 +337,20 @@ Per-pixel cost as built: up to 96 march steps × 2 texture fetches, 8 bisection 
 
 | Tier | Sand field | March steps | DPR cap | Post chain | |
 |------|-----------|-------------|---------|-----------|--|
-| Cinematic | 2048² | 128 | 2.0 | Full | ← desktop default |
+| Cinematic | 2048² | 128 | 1.5 | Full | ← desktop default |
 | High | 1500² | 96 | 1.5 | Bloom + grain | |
 | Standard | 768² | 48 | 1.0 | Grain only | |
 | Fallback | — | — | — | Static, no WebGL | |
 
 ### Required behaviours
 
-Built already: `IntersectionObserver` + `visibilitychange` pause, context-loss handling, shader-compile error trap with a downgrade path, `prefers-reduced-motion`.
+Built already: `IntersectionObserver` + `visibilitychange` pause, context-loss handling, shader-compile error trap with a downgrade path, `prefers-reduced-motion`, tier auto-detection.
 
-Still to build: tier auto-detection, one-agent-at-a-time enforcement, freeze-and-stop in focus mode.
+**Tier auto-detection**, as built: sustained sub-45fps while focused for 4s drops a tier, moving field size, march steps and DPR together. Reallocating the field discards the sand, which is acceptable at most twice a session on a machine already dropping frames. Two things it sits alongside — a **60fps render cap**, because an unpaced loop on a 120Hz panel spends twice the GPU on a background scene, and a **12fps throttle when the window is visible but unfocused**, which `visibilitychange` does not cover and which is where a second window or an editor in front costs the most.
+
+Cinematic's DPR cap is 1.5, not the 2.0 this table carried through v0.3. The ~120fps above was measured on the prototype, which capped DPR at 1.4 — 2.0 is four times the fragments of 1.0 in the most expensive shader here and was never measured at all.
+
+Still to build: one-agent-at-a-time enforcement, freeze-and-stop in focus mode.
 
 ---
 
@@ -353,9 +369,10 @@ Still to build: tier auto-detection, one-agent-at-a-time enforcement, freeze-and
 
 **Phase 1 — Prove the primitive. ✅ Done.** Sand field, ping-pong sim, slumping and infill, `press` brush with rim, wave system. The gate is passed: pressing into the sand feels right.
 
-**Phase 2 — The beach. ◐ Partial.** Done: raymarched terrain, low sun, ripples, sky, sea, waves, wetness. **Two gaps remain:**
-- **Scroll-driven camera.** Never wired. The phase exit condition — scrolling an empty beach is pleasant on its own — is untested.
-- **Camera-following clipmap.** The sand field is a bounded patch; interaction stops at its edge. Dollying along the beach makes this worse, since the interactive zone must travel with the camera. Same fix for both.
+**Phase 2 — The beach. ◐ Both gaps closed, exit condition unjudged.** Done: raymarched terrain, low sun, ripples, sky, sea, waves, wetness, and the engine ported out of the prototype into `src/gl` and `src/sand`.
+- **Scroll-driven camera.** Built. Scrolling down retreats up the dry beach, z 2.0 → 7.0, with ~10° of azimuth swept across the travel. `endZ` is bounded by the ramp rather than by taste: `beachY` clamps at 0.9, so above ~7.7 the eye is over flat ground and the near foreground becomes a shelf.
+- **Camera-following clipmap.** Built. The patch follows the camera's look-at point, snapped to whole texels — unsnapped, bilinear resampling blurs every mark a little more each frame until a footprint dissolves from the camera merely moving past it. The baked layer is locked to the world and wraps, so ripples stay put on the ground while the interactive layer travels.
+- **Still open: the exit condition itself** — whether scrolling an empty beach is pleasant on its own. Not answerable in headless, for the appearance reason in §14.
 
 **Phase 3 — Two modes.** Routing, nav, focus pull, freeze-and-stop, focus pages with placeholder text. **Deliberately before content** — retrofitting a mode system after five projects exist is far more expensive than building it into an empty shell.
 
@@ -375,11 +392,16 @@ Shaders are validated before shipping, not eyeballed. The gate:
 
 1. **`glslangValidator`** compiles all four shaders as ESSL 3.00. This catches reserved-word collisions — `patch`, `sample`, `half`, `input`, `output`, `buffer`, `shared`, `filter`, `this` are all reserved and all easy to reach for.
 2. **Reserved-word scan** over comment-stripped source, as defence in depth.
-3. **`node --check`** on the extracted inline JavaScript.
-4. **Headless Chrome** loads the page, screenshots it, and asserts no runtime errors.
-5. **Shader unit tests** — the sim shader is extracted from the shipped file and driven directly with fixed timesteps, reading heights back through an RGBA8 probe. This is how the fill-in curve and the wave-erase behaviour in §6.2 and §7.4 were measured.
+3. **Typecheck and build** — `tsc --noEmit` then `vite build`. Replaces v0.3's `node --check` on extracted inline JavaScript, which was a prototype-era step: the engine is TypeScript now.
+4. **Scene smoke test** (`npm run smoke`) — headless Chrome loads the page and asserts no runtime errors, no failed requests, no GL error, and that a frame with real tonal range came out. Then, on the field itself: a press carves a depression *with a rim*, the render cap actually limits the loop, scrolling dollies the camera without burying it in the ramp, and a mark stays put in the world while the patch travels under it.
+5. **Simulation unit tests** (`npm run test:sim`) — the shipped field driven at fixed timesteps, reading heights back through a float probe. This is how the fill-in curve in §6.2 and the catch-up numbers in §9/§10 were measured. Also covers the pure-CPU catch-up planner.
+6. **Context persistence** (`npm run check:context`) — two throwaway routes proving one WebGL context and its sand survive navigation, with a full page load as the control. Guards the assumption §10 rests on.
 
-Two lessons worth keeping. **Brace-balance and uniform-name checks are not verification** — the `patch` collision passed both and failed in the browser. And **software rendering cannot test temporal behaviour**: a fill-in test looked like a flat line purely because only ~1s of simulated time elapsed in 25 real seconds. Time-dependent behaviour goes through the unit harness, not the page.
+Three lessons worth keeping. **Brace-balance and uniform-name checks are not verification** — the `patch` collision passed both and failed in the browser.
+
+**Software rendering cannot test WALL-CLOCK behaviour**, which is the sharper form of the v0.3 lesson: the fill-in test read as a flat line because only ~1s of simulated time elapsed in 25 real seconds. Stepping the field a *counted* number of times is immune — the unit harness runs 500+ steps under SwiftShader and reproduces the §6.2 curve exactly. It is measuring against the clock that breaks, not the software renderer as such.
+
+**Software rendering cannot test appearance either.** Under SwiftShader the value noise collapses to a constant, so the baked ripples vanish — in the prototype exactly as in the engine. Nothing about the look can be judged from a headless screenshot; that check can only answer "did a frame come out".
 
 ---
 
