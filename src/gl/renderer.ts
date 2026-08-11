@@ -30,9 +30,14 @@ export class BeachRenderer {
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
-    private readonly tier: Tier,
+    private tier: Tier,
   ) {
     this.prog = createProgram(gl, vertSrc, renderSrc, "render");
+  }
+
+  /** Auto-downgrade swaps the tier under a live context. */
+  setTier(tier: Tier): void {
+    this.tier = tier;
   }
 
   render(

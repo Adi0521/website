@@ -154,6 +154,57 @@ try {
     `${info.distinct} distinct colour buckets`,
   );
 
+  // Render pacing. Verified by counting frames against a deliberately low cap,
+  // because the headless renderer is already far slower than any real cap and
+  // a 60fps limit would never engage here.
+  const pace = await page.evaluate(async () => {
+    const b = window.__beach;
+    b.autoDowngrade = false; // a deliberate low cap would otherwise trip it
+    const measure = async (cap, ms) => {
+      b.maxFps = cap;
+      await new Promise((r) => setTimeout(r, 400)); // let the cap take effect
+      const f0 = b.frames, t0 = performance.now();
+      await new Promise((r) => setTimeout(r, ms));
+      return (b.frames - f0) / ((performance.now() - t0) / 1000);
+    };
+    // Uncapped first, so the capped number is compared against what this
+    // machine can actually do rather than against a hoped-for constant.
+    const free = await measure(1000, 3000);
+    const capped = await measure(1, 4000);
+    b.maxFps = 60;
+    b.autoDowngrade = true;
+    return { free, capped };
+  });
+  check(
+    "the render cap actually limits the loop",
+    pace.capped < pace.free * 0.7 && pace.capped <= 1.4,
+    `uncapped ${pace.free.toFixed(1)}fps → ${pace.capped.toFixed(1)}fps at a cap of 1`,
+  );
+
+  // Auto-downgrade (PRD §11, "still to build"). SwiftShader genuinely cannot
+  // keep up, so this environment exercises the path for real — but a machine
+  // with a working GPU will not, and that is not a failure.
+  const down = await page.evaluate(async () => {
+    const b = window.__beach;
+    const from = b.tier.name;
+    b.maxFps = 60;
+    b.autoDowngrade = true;
+    const t0 = performance.now();
+    while (b.tier.name === from && performance.now() - t0 < 12000) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return { from, to: b.tier.name, secs: (performance.now() - t0) / 1000, fps: b.fps };
+  });
+  if (down.to === down.from && down.fps >= 45) {
+    console.log(`  skip  auto-downgrade — machine sustains ${down.fps}fps, path not exercised`);
+  } else {
+    check(
+      "a machine that cannot keep up is downgraded",
+      down.to !== down.from,
+      `${down.from} → ${down.to} after ${down.secs.toFixed(1)}s at ${down.fps}fps`,
+    );
+  }
+
   // Scroll owns the camera (PRD §3). Run before the field tests below, which
   // stop the loop.
   const scroll = await page.evaluate(async () => {

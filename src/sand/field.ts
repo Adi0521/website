@@ -43,7 +43,7 @@ export class SandField {
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
-    private readonly tier: Tier,
+    private tier: Tier,
     private config: SandConfig,
   ) {
     this.bakeProg = createProgram(gl, vertSrc, bakeSrc, "bake");
@@ -100,6 +100,14 @@ export class SandField {
   /** Queues a clear of the interactive layer. Applied on the next step. */
   reset(): void {
     this.resetPending = true;
+  }
+
+  /**
+   * Auto-downgrade swaps the tier under a live context. The caller must resize
+   * afterwards: this only changes the cap the next resize will honour.
+   */
+  setTier(tier: Tier): void {
+    this.tier = tier;
   }
 
   /** Queues a re-bake. Call after changing ripple or dune parameters. */
