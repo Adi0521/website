@@ -14,7 +14,10 @@
 
 /* ── nav ─────────────────────────────────────────────────────────────────── */
 
+/* Nav "fills in" as the pull lands (§10). Matched to FOCUS_RATE's ~600ms so
+   the plate, the nav and the scene arrive together rather than in sequence. */
 #nav {
+  transition: background-color 600ms ease, color 600ms ease, border-color 600ms ease;
   position: sticky;
   top: 0;
   z-index: 3;
@@ -60,7 +63,13 @@
 
 /* ── pages ───────────────────────────────────────────────────────────────── */
 
+/* §10: "text plate rises". The scene is pulling for ~600ms behind it, so the
+   plate arriving instantly would read as the page changing before the
+   transition, not as part of it. */
 .plate {
+  /* Text to select and links to click, and it is opaque anyway. */
+  pointer-events: auto;
+  animation: plate-rise 600ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   background: var(--foam);
   color: var(--ink);
   max-width: var(--measure);      /* 65–75 characters, per §9 */
@@ -68,6 +77,16 @@
   padding: clamp(1.5rem, 4vw, 3rem);
   border-radius: 3px;
 }
+
+@keyframes plate-rise {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Transparent over the live scene, so the sand underneath stays reachable.
+   Only the interactive parts take the pointer back. */
+.hero { pointer-events: none; }
+.hero a, .hero button { pointer-events: auto; }
 
 .hero {
   min-height: 70vh;
@@ -84,7 +103,25 @@
 .lede { font-size: 1.15rem; max-width: 42ch; }
 
 h1, h2 { line-height: 1.15; }
-h1:focus-visible, h1:focus { outline: 2px solid var(--sea); outline-offset: 6px; }
+
+/* The router focuses the heading on every navigation so keyboard and screen
+   reader users land on the new content (§12).
+
+   No ring, and :focus-visible is not enough to prevent one — Chrome matches it
+   here. The reasoning is stronger than "it looks wrong": the heading carries
+   tabindex="-1", so it is not in the tab order and CANNOT be reached by
+   tabbing. Every focus it ever receives is programmatic, which means a ring on
+   it is never information — it is just a box drawn around the title of every
+   page. The live-region announcement is what tells a screen reader user they
+   have arrived. */
+h1[tabindex]:focus,
+h1[tabindex]:focus-visible { outline: none; }
+
+/* Genuinely focusable things keep theirs. */
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--sea);
+  outline-offset: 3px;
+}
 
 p { margin: 0 0 1.1em; }
 a { color: var(--sea-deep); }
@@ -101,3 +138,10 @@ a { color: var(--sea-deep); }
 
 /* No canvas: the page is just a page, so it needs a readable background. */
 :root[data-scene="off"] .hero { color: var(--ink); text-shadow: none; }
+
+/* §12: reduced motion means no transition at all, not a faster one. The scene
+   is already held at full pull for the same reason. */
+@media (prefers-reduced-motion: reduce) {
+  .plate { animation: none; }
+  #nav { transition: none; }
+}

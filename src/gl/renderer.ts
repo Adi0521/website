@@ -15,8 +15,11 @@ import { Program, createProgram, drawFullscreen } from "../gl/program";
 import { cameraBasis, type CameraState } from "./camera";
 import { DOMAIN, heightToWorld, type DebugView, type SandConfig } from "../sand/params";
 
+import { createTarget, disposeTarget, type Target } from "./target";
+
 import vertSrc from "./shaders/fullscreen.vert";
 import renderSrc from "./shaders/render.frag";
+import compositeSrc from "./shaders/composite.frag";
 
 export interface CursorState {
   /** World XZ of the ring. */
@@ -27,12 +30,37 @@ export interface CursorState {
 
 export class BeachRenderer {
   private readonly prog: Program;
+  private readonly composite: Program;
+  /** Only allocated once the pull is engaged — the beach never pays for it. */
+  private scene: Target | null = null;
+  private sceneW = 0;
+  private sceneH = 0;
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
     private tier: Tier,
   ) {
     this.prog = createProgram(gl, vertSrc, renderSrc, "render");
+    this.composite = createProgram(gl, vertSrc, compositeSrc, "composite");
+  }
+
+  /**
+   * The offscreen target the pull blurs. Sized to the drawing buffer and
+   * reallocated when that changes, which is the resize case §10 calls out as
+   * the one thing that must re-render a frozen focus page.
+   */
+  private ensureScene(w: number, h: number): Target {
+    if (this.scene && this.sceneW === w && this.sceneH === h) return this.scene;
+    if (this.scene) disposeTarget(this.gl, this.scene);
+    this.scene = createTarget(this.gl, w, h, { mipmaps: true, format: "rgba8" });
+    this.sceneW = w;
+    this.sceneH = h;
+    return this.scene;
+  }
+
+  dispose(): void {
+    if (this.scene) disposeTarget(this.gl, this.scene);
+    this.scene = null;
   }
 
   /** Auto-downgrade swaps the tier under a live context. */
@@ -48,6 +76,7 @@ export class BeachRenderer {
     time: number,
     cursor: CursorState,
     view: DebugView,
+    focus = 0,
   ): void {
     if (!field.ready) return;
     const gl = this.gl;
@@ -55,7 +84,13 @@ export class BeachRenderer {
     const { water, look } = config;
     const c = cameraBasis(camera);
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // Straight to the screen while the beach is the beach. The composite is a
+    // whole extra fullscreen pass, and About would be paying for it every
+    // frame to apply an effect set to zero.
+    const pulled = focus > 0.001;
+    const target = pulled ? this.ensureScene(canvas.width, canvas.height) : null;
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fb : null);
     gl.viewport(0, 0, canvas.width, canvas.height);
     this.prog.use();
     this.prog.tex("uField", 0, field.texture);
@@ -97,6 +132,25 @@ export class BeachRenderer {
     this.prog.f("uCursorR", cursor.radius);
     this.prog.i("uView", view);
 
+    drawFullscreen(gl);
+
+    if (!target) return;
+
+    // The mip chain IS the blur, so it has to be rebuilt from the frame just
+    // drawn rather than left over from the last one.
+    gl.bindTexture(gl.TEXTURE_2D, target.tex);
+    gl.generateMipmap(gl.TEXTURE_2D);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    this.composite.use();
+    this.composite.tex("uScene", 0, target.tex);
+    this.composite.f2("uTexel", 1 / canvas.width, 1 / canvas.height);
+    this.composite.f("uFocus", focus);
+    this.composite.f("uMaxLod", Math.floor(Math.log2(Math.max(canvas.width, canvas.height))));
+    this.composite.f("uBlur", config.focus.blur);
+    this.composite.f("uDim", config.focus.dim);
+    this.composite.f("uDesat", config.focus.desaturate);
     drawFullscreen(gl);
   }
 }

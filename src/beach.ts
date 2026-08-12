@@ -55,6 +55,34 @@ const DOWNGRADE_AFTER = 4;
  */
 const WARMUP_SECONDS = 2;
 
+/**
+ * Focus-pull rate, per second. §10 budgets ~600ms; an exponential ease is
+ * within 1% of its target after 0.6s at this rate.
+ *
+ * It is a rate rather than a scripted 600ms timeline because §10 also requires
+ * the transition to be INTERRUPTIBLE. Navigating back mid-pull has to reverse
+ * from wherever the pull actually got to, and a timeline would either snap to
+ * its start or play out an animation nobody asked for.
+ */
+const FOCUS_RATE = 8;
+
+/**
+ * Render cap while the pull is engaged.
+ *
+ * DEVIATION FROM §10, deliberate. The PRD freezes focus pages outright — "stop
+ * the render loop entirely", costing approximately zero GPU after the first
+ * frame. In practice a frozen beach behind the text reads as a screenshot, and
+ * the thing that actually distracts from reading is sand deforming, not water
+ * moving. So the waves keep running and the brush is switched off instead.
+ *
+ * That gives up the zero-cost guarantee, so this claws back half of it: the
+ * scene is blurred to a mip level where 30fps is indistinguishable from 60.
+ */
+const FOCUS_FPS = 30;
+
+/** Above this, the beach stops taking new marks. */
+const NO_BRUSH_ABOVE = 0.01;
+
 const DEFAULT_CAMERA: CameraState = {
   azimuth: 1.55,
   elevation: 0.23,
@@ -106,6 +134,10 @@ export class Beach {
   /** Set false to pin the tier and stop auto-downgrade. */
   autoDowngrade = true;
 
+  /** 0 = the beach, 1 = fully pulled. Eased toward `focusTarget`. */
+  private focus = 0;
+  private focusTarget = 0;
+
   private fpsEma = 0;
   /**
    * The frame clock was reset from outside the loop, so the next interval
@@ -131,6 +163,42 @@ export class Beach {
 
   /** Called each frame before the sim steps. The scroll camera hangs here. */
   onFrame: ((dt: number) => void) | null = null;
+
+  /**
+   * The camera with the pull applied. Derived rather than written back, because
+   * `camera` belongs to the scroll driver — mutating it here would make the
+   * push permanent the moment the pull was interrupted.
+   */
+  private pushedCamera(): CameraState {
+    if (this.focus <= 0.001) return this.camera;
+    const push = this.config.focus.push;
+    return { ...this.camera, distance: this.camera.distance * (1 - push * this.focus) };
+  }
+
+  /** Pointer state in world space. Diagnostic — the brush is derived from it. */
+  get pointer(): { x: number; z: number; inside: boolean; valid: boolean; down: boolean } {
+    const p = this.ptr;
+    return { x: p.x, z: p.z, inside: p.inside, valid: p.valid, down: p.down };
+  }
+
+  /** Current pull, 0..1. Read by tests and by anything staging DOM against it. */
+  get focusAmount(): number {
+    return this.focus;
+  }
+
+  /**
+   * Drives the focus pull (§10). `immediate` lands on the target without
+   * animating, which is what a deep link needs: it never entered from the
+   * beach, so there is no transition for it to play.
+   */
+  setFocus(target: number, immediate = false): void {
+    this.focusTarget = Math.min(1, Math.max(0, target));
+    if (immediate) this.focus = this.focusTarget;
+    // The loop has to be running to animate the pull, and to draw the one
+    // frame that gets frozen at the end of it.
+    if (!this.running && !this.reducedMotion) this.start();
+    else if (this.reducedMotion) this.renderStill();
+  }
 
   /** Smoothed frames per second. 0 until two frames have run back to back. */
   get fps(): number {
@@ -249,8 +317,8 @@ export class Beach {
     this.resize();
     this.field.step(0, null, this.waves, this.time);
     this.renderer.render(
-      this.field, this.camera, this.config, this.waves, this.time,
-      this.cursor(), this.view,
+      this.field, this.pushedCamera(), this.config, this.waves, this.time,
+      this.cursor(), this.view, this.focus,
     );
   }
 
@@ -258,6 +326,7 @@ export class Beach {
     this.stop();
     this.observer?.disconnect();
     this.field.dispose();
+    this.renderer.dispose();
   }
 
   // ── loop ──────────────────────────────────────────────────────────────────
@@ -281,7 +350,12 @@ export class Beach {
     // a visible stutter in anything sweeping across the screen, which on this
     // page is the waterline. 4ms swallows normal RAF jitter while still
     // halving a 120Hz display, which is the only case the cap exists for.
-    const interval = 1000 / (this.focused ? this.maxFps : UNFOCUSED_FPS);
+    const cap = !this.focused
+      ? UNFOCUSED_FPS
+      : this.focus > 0.5
+        ? Math.min(this.maxFps, FOCUS_FPS)
+        : this.maxFps;
+    const interval = 1000 / cap;
     if (now - this.lastRender < interval - 4) return;
     this.lastRender = now;
 
@@ -336,14 +410,26 @@ export class Beach {
     this.ptr.prevX = this.ptr.x;
     this.ptr.prevZ = this.ptr.z;
 
+    // Eased, and snapped once it is close enough that another frame would not
+    // change a pixel — otherwise the loop never reaches the freeze below and
+    // a focus page keeps rendering forever at zero visible benefit.
+    const fk = 1 - Math.exp(-FOCUS_RATE * elapsed);
+    this.focus += (this.focusTarget - this.focus) * fk;
+    if (Math.abs(this.focus - this.focusTarget) < 0.002) this.focus = this.focusTarget;
+
     this.renderer.render(
-      this.field, this.camera, this.config, this.waves, this.time,
-      this.cursor(), this.view,
+      this.field, this.pushedCamera(), this.config, this.waves, this.time,
+      this.cursor(), this.view, this.focus,
     );
+
   };
 
   private brush(): Brush | null {
     const p = this.ptr;
+    // Focus pages take no new marks. Whatever was already pressed stays and
+    // goes on eroding — waves still reach it, wind still fills it in — but
+    // nothing new is written while there is text to read.
+    if (this.focus > NO_BRUSH_ABOVE) return null;
     if (!p.inside || !p.valid) return null;
     const b = this.field.worldToField(p.x, p.z);
     if (!b) return null;
@@ -368,7 +454,7 @@ export class Beach {
     const p = this.ptr;
     return {
       world: [p.x, p.z],
-      visible: p.inside && p.valid,
+      visible: p.inside && p.valid && this.focus <= NO_BRUSH_ABOVE,
       radius: this.config.brush.radius * 2 * DOMAIN,
     };
   }
@@ -429,6 +515,8 @@ export class Beach {
       this.ptr.prevZ = this.ptr.z;
     });
 
+    // §10: re-render only on resize. A frozen focus page is showing a frame
+    // drawn at the old size, and the composite target is allocated to it too.
     addEventListener("resize", () => {
       if (!this.running) this.renderStill();
     });

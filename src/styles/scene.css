@@ -29,7 +29,12 @@ body { margin: 0; background: var(--ink); color: var(--sand-lit); }
   pointer-events: none;
 }
 
-#app > * { pointer-events: auto; }
+/* Deliberately NOT `#app > *`. That handed events back to every section,
+   including the hero — which covers the top 70% of the home page and sits
+   directly over the sand, so it silently swallowed every attempt to draw
+   there. G1 is "a first-time visitor tries to interact with it unprompted";
+   they cannot if the copy is in the way. Only things that need a pointer take
+   one back, in page.css. */
 
 /* The scroll spacer covers the viewport many times over, so it must NOT take
    pointer events back — it would sit between the pointer and the sand for the

@@ -11,21 +11,46 @@ export interface Target {
   height: number;
 }
 
+export interface TargetOptions {
+  wrap?: number;
+  /**
+   * Allocate a mip chain and filter through it. The focus pull blurs by
+   * walking down the chain, which is why the composite target needs one and
+   * the sand field does not.
+   */
+  mipmaps?: boolean;
+  /** 8-bit is enough once the scene has been tone-mapped and clamped. */
+  format?: "rgba16f" | "rgba8";
+}
+
 export function createTarget(
   gl: WebGL2RenderingContext,
   width: number,
   height: number,
-  wrap: number = gl.CLAMP_TO_EDGE,
+  opts: TargetOptions | number = {},
 ): Target {
+  // Numeric third argument is the wrap mode, kept for the field's call sites.
+  const o: TargetOptions = typeof opts === "number" ? { wrap: opts } : opts;
+  const wrap = o.wrap ?? gl.CLAMP_TO_EDGE;
+
   const tex = gl.createTexture()!;
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  if (o.format === "rgba8") {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  }
   // LINEAR throughout: the renderer samples the field at arbitrary world
   // positions along the march, not on the texel grid.
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(
+    gl.TEXTURE_2D,
+    gl.TEXTURE_MIN_FILTER,
+    o.mipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR,
+  );
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+  if (o.mipmaps) gl.generateMipmap(gl.TEXTURE_2D);
 
   const fb = gl.createFramebuffer()!;
   gl.bindFramebuffer(gl.FRAMEBUFFER, fb);

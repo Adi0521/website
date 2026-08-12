@@ -93,12 +93,29 @@ export interface LookParams {
   sat: number;
 }
 
+/**
+ * The focus pull (§10). Every part of it is a number here rather than a
+ * constant in a shader, because which of them carries the transition is a look
+ * decision and was got wrong once already.
+ */
+export interface FocusParams {
+  /** Mip levels of defocus at full pull. Above ~6 the frame turns to soup. */
+  blur: number;
+  /** Luminance multiplier at full pull. 1 leaves the scene at its own brightness. */
+  dim: number;
+  /** 0 keeps the beach's own colour; 1 compresses it toward --sand-shadow. */
+  desaturate: number;
+  /** Camera push toward its target, as a fraction of the distance. */
+  push: number;
+}
+
 export interface SandConfig {
   transport: TransportParams;
   brush: BrushParams;
   bake: BakeParams;
   water: WaterParams;
   look: LookParams;
+  focus: FocusParams;
 }
 
 export const DEFAULT_SAND: SandConfig = {
@@ -113,6 +130,8 @@ export const DEFAULT_SAND: SandConfig = {
     relief: 1.0, sparkle: 0.55, sunEl: 0.17, sunAz: 2.35,
     sky: 0.6, fog: 0.055, exposure: 0.95, sat: 1.36,
   },
+  // A blurred beach, at its own brightness and its own colour.
+  focus: { blur: 5.0, dim: 1.0, desaturate: 0.0, push: 0.26 },
 };
 
 /**

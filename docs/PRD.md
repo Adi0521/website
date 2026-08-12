@@ -107,7 +107,7 @@ Global saturation sits at ~1.36, applied after tone mapping in display space so 
 
 ### Focus mode
 
-Same palette compressed. Scene desaturates toward `--sand-shadow`, blurs, drops to ~30% luminance. Text plates in `--foam`, body copy in `--sand-shadow`, `--sea` for links so they stay consistent across modes. **Once in focus mode it must feel like a well-set article:** 65–75 character measure, real vertical rhythm, nothing competing with the text.
+Same palette compressed. **Built as specified and rejected:** desaturating toward `--sand-shadow` and dropping to ~30% luminance read as a dark scrim laid over the beach rather than as the beach out of focus, and with an opaque `--foam` plate carrying the text it was not buying legibility either. Shipped as defocus plus the camera push, at the scene's own brightness and colour. Both grades survive as live parameters (`focus.dim`, `focus.desaturate` in `src/sand/params.ts`, default 1.0 and 0.0), so this is a setting rather than a deletion. Text plates in `--foam`, body copy in `--sand-shadow`, `--sea` for links so they stay consistent across modes. **Once in focus mode it must feel like a well-set article:** 65–75 character measure, real vertical rhythm, nothing competing with the text.
 
 ### Typography
 
@@ -305,7 +305,7 @@ Same scene, focus pulled. Single centred column on a `--foam` plate, 65–75 cha
 - **`/resume`** — full resume as real HTML plus PDF download. **Not an iframed PDF** — unreadable on mobile, invisible to search.
 - **`/contact`** — short.
 
-Focus mode turns off: sand simulation, agent updates, wave scheduler, camera, post chain, and the RAF loop itself.
+Focus mode turns off: the brush, the cursor ring, agent updates, and scroll-driven camera motion. The sand simulation, the wave scheduler and the render loop keep running at a reduced frame cap — see §10 for why the v0.3 freeze was rejected.
 
 ---
 
@@ -313,7 +313,11 @@ Focus mode turns off: sand simulation, agent updates, wave scheduler, camera, po
 
 **Entering:** camera pushes toward the target, depth of field ramps, saturation and luminance drop, text plate rises, nav fills in. ~600ms, eased, interruptible.
 
-**Then the scene freezes.** Render the blurred scene once to a texture, composite as static background, **stop the render loop entirely.** Focus pages cost approximately zero GPU after the first frame. Re-render only on resize.
+**Then the scene settles — it does not freeze.** v0.3 stopped the render loop entirely on focus pages, for approximately zero GPU after the first frame. Built and rejected: a frozen beach behind the text reads as a screenshot rather than a place, and what actually competes with reading is *sand deforming*, not water moving.
+
+So the waves, the swash and the wetness keep running, and **the brush is switched off instead** — a focus page takes no new marks, while whatever was already pressed goes on eroding under the wind and the waves. The cursor ring is hidden too.
+
+That gives up the zero-cost guarantee, so two things claw it back: the render cap drops to **30fps** while pulled (the scene is blurred to a mip level where that is indistinguishable from 60), and the scene target is the only allocation the pull adds. A focus page costs roughly a third of an About page rather than nothing.
 
 **Leaving:** restart the loop, reverse. The sand field still holds whatever state it had — marks left before navigating away are still there, further eroded. That continuity is the payoff for one persistent context and something a page reload could never give.
 

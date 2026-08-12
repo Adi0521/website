@@ -396,6 +396,171 @@ try {
     "off-centre picks land in the clipmap, not past its edge",
   );
 
+  // ── Focus pull (PRD §10) ────────────────────────────────────────────────
+  const pull = await page.evaluate(async () => {
+    const b = window.__beach;
+    const r = window.__router;
+    const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+    const settle = async (fn) => {
+      for (let i = 0; i < 80; i++) { if (fn()) return true; await wait(100); }
+      return false;
+    };
+
+    // Mean luminance and mean chroma of the composited frame. renderStill()
+    // redraws through whatever path the current focus selects, so this reads
+    // the real output rather than a reconstruction of it.
+    const sample = () => {
+      b.renderStill();
+      const gl = b.gl, w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      const px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let lum = 0, chroma = 0, detail = 0;
+      const n = w * h;
+      const lumAt = (i) => 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+      for (let i = 0; i < n; i++) {
+        const R = px[i * 4], G = px[i * 4 + 1], B = px[i * 4 + 2];
+        lum += 0.2126 * R + 0.7152 * G + 0.0722 * B;
+        chroma += Math.max(R, G, B) - Math.min(R, G, B);
+      }
+      // Mean gradient between horizontally adjacent pixels. Defocus is a loss
+      // of high frequencies, so this measures the blur itself rather than
+      // something the blur happens to correlate with.
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w - 1; x++) {
+          detail += Math.abs(lumAt(y * w + x + 1) - lumAt(y * w + x));
+        }
+      }
+      return { lum: lum / n, chroma: chroma / n, detail: detail / n };
+    };
+
+    r.navigate("/");
+    const reachedBeach = await settle(() => b.focusAmount === 0);
+    const beachFrame = sample();
+
+    r.navigate("/resume");
+    const reachedFocus = await settle(() => b.focusAmount === 1);
+    await wait(300);
+    const framesAtRest = b.frames;
+    const simAtRest = b.elapsedSimulated;
+    await wait(1500);
+    const framesLater = b.frames;
+    const simLater = b.elapsedSimulated;
+    const focusFrame = sample();
+
+    // §10: deep links skip the animation. Distinguishable from the animated
+    // path deterministically, without depending on catching it mid-flight.
+    r.navigate("/");
+    await settle(() => b.focusAmount === 0);
+    b.setFocus(1);
+    const afterAnimated = b.focusAmount;
+    b.setFocus(1, true);
+    const afterImmediate = b.focusAmount;
+
+    // NOT navigate("/") — we are already on "/", and the router correctly
+    // treats that as a no-op, so onNavigate never fires and the pull forced
+    // above would stay latched at 1 for everything after this.
+    b.setFocus(0);
+    await settle(() => b.focusAmount === 0);
+    return {
+      reachedBeach, reachedFocus, beachFrame, focusFrame,
+      framesAtRest, framesLater, simAtRest, simLater,
+      afterAnimated, afterImmediate,
+    };
+  });
+
+  check("the pull reaches both ends", pull.reachedBeach && pull.reachedFocus,
+    `focus 0 on the beach, 1 on a focus route`);
+  check(
+    "the pulled scene defocuses",
+    pull.focusFrame.detail < pull.beachFrame.detail * 0.5,
+    `mean adjacent-pixel gradient ${pull.beachFrame.detail.toFixed(3)} → ` +
+      `${pull.focusFrame.detail.toFixed(3)} ` +
+      `(${((pull.focusFrame.detail / pull.beachFrame.detail) * 100).toFixed(0)}% of the detail left)`,
+  );
+  check(
+    "the pull keeps the beach's own brightness and colour",
+    pull.focusFrame.lum > pull.beachFrame.lum * 0.8 &&
+      pull.focusFrame.chroma > pull.beachFrame.chroma * 0.7,
+    `luminance ${pull.beachFrame.lum.toFixed(1)} → ${pull.focusFrame.lum.toFixed(1)}, ` +
+      `chroma ${pull.beachFrame.chroma.toFixed(1)} → ${pull.focusFrame.chroma.toFixed(1)} ` +
+      `— no dark wash over the scene`,
+  );
+  check(
+    "the waves keep running on a focus page",
+    pull.framesLater > pull.framesAtRest && pull.simLater > pull.simAtRest,
+    `${pull.framesLater - pull.framesAtRest} frame(s) and ` +
+      `${(pull.simLater - pull.simAtRest).toFixed(2)}s of simulation in 1.5s of reading`,
+  );
+  check(
+    "a deep link skips the animation, a navigation does not",
+    pull.afterAnimated < 0.5 && pull.afterImmediate === 1,
+    `animated starts at ${pull.afterAnimated.toFixed(2)}, immediate lands at ${pull.afterImmediate}`,
+  );
+
+  // The point of the deviation from §10: water still moves, sand does not get
+  // written. Driven through real pointer events rather than the brush API, so
+  // it tests the path a visitor actually takes.
+  const marking = await page.evaluate(() => {
+    window.__probeDeepest = () => {
+      const b = window.__beach, gl = b.gl;
+      const fb = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.field.texture, 0);
+      const px = new Float32Array(b.field.width * b.field.height * 4);
+      gl.readPixels(0, 0, b.field.width, b.field.height, gl.RGBA, gl.FLOAT, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb);
+      let lo = 0;
+      for (let i = 0; i < b.field.width * b.field.height; i++) if (px[i * 4] < lo) lo = px[i * 4];
+      return lo;
+    };
+    return true;
+  });
+
+  // Scrolled to the top first: the scroll assertion above leaves the page at
+  // the bottom, which puts the camera at z=7.6 where these screen coordinates
+  // land outside the interactive patch and nothing would be marked either way.
+  const sweep = async () => {
+    await page.evaluate(() => scrollTo({ top: 0, behavior: "instant" }));
+    await new Promise((r) => setTimeout(r, 700));
+    for (const [x, y] of [[400, 500], [640, 600], [900, 700], [300, 760]]) {
+      await page.mouse.move(x, y);
+    }
+    await new Promise((r) => setTimeout(r, 900));
+    return page.evaluate(() => ({
+      deepest: window.__probeDeepest(),
+      ptr: window.__beach.pointer,
+      focus: window.__beach.focusAmount,
+      camZ: +window.__beach.camera.target[2].toFixed(2),
+      running: window.__beach.frames,
+    }));
+  };
+
+  const settleTo = async (path, want) => {
+    await page.evaluate(async ([p, w]) => {
+      window.__router.navigate(p);
+      // Belt and braces: navigating to the path already showing is a no-op,
+      // so the pull is set directly rather than assumed to follow.
+      window.__beach.setFocus(w);
+      for (let i = 0; i < 80; i++) {
+        if (window.__beach.focusAmount === w) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      window.__beach.field.reset();
+    }, [path, want]);
+    return sweep();
+  };
+
+  const onBeach = await settleTo("/", 0);
+  const onFocus = await settleTo("/resume", 1);
+
+  check("the pointer marks the sand on the beach", onBeach.deepest < -0.02,
+    `deepest ${onBeach.deepest.toFixed(3)} · ptr ${JSON.stringify(onBeach.ptr)} · ` +
+    `focus ${onBeach.focus} · camZ ${onBeach.camZ}`);
+  check("the pointer leaves no mark on a focus page", onFocus.deepest > -0.005,
+    `deepest ${onFocus.deepest.toFixed(3)} · focus ${onFocus.focus}`);
+  await page.evaluate(() => window.__router.navigate("/"));
+
   // Lateral swash. Measured through the SIMULATION's wetness channel, not the
   // picture: it proves the shared wave chunk bends the waterline for the sim
   // and the renderer alike, which is the invariant that matters. Differential,

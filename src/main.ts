@@ -49,15 +49,20 @@ function boot(): void {
     routes: ROUTES,
     notFound,
     container,
-    onNavigate: (to) => {
+    onNavigate: (to, from) => {
       markCurrent(to);
+      // Anchors the beach where it is when entering a focus page, and swaps
+      // the scroll mapping from About's normalised journey to a fixed rate.
+      scroll?.setMode(to.route.mode);
       if (!beach) return;
-      // §9: focus pages turn the simulation, the scheduler and the RAF loop
-      // off entirely, so they cost approximately nothing after the first
-      // frame. §10: coming back resumes with catch-up, so marks left before
-      // navigating away are still there, further eroded.
-      if (to.route.mode === "focus") beach.stop();
-      else beach.start();
+      // §12: reduced motion gets About in focus-mode styling too — static,
+      // desaturated, no camera motion — rather than a slower version of the
+      // live scene.
+      const pull = beach.reducedMotion || to.route.mode === "focus" ? 1 : 0;
+      // §10: deep links skip the animation. `from === null` is exactly that
+      // case — the first render of the session, with no route to come from,
+      // so there is no transition to play.
+      beach.setFocus(pull, from === null || beach.reducedMotion);
     },
   });
 
