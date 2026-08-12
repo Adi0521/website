@@ -22,6 +22,7 @@ body { margin: 0; background: var(--ink); color: var(--sand-lit); }
 #app {
   position: relative;
   z-index: 1;
+  min-height: 100vh;
   /* Nothing in the shell is interactive yet, and a full-bleed transparent
      layer over the canvas would swallow every pointer event before the sand
      ever saw it. Children turn this back on. */
@@ -32,7 +33,8 @@ body { margin: 0; background: var(--ink); color: var(--sand-lit); }
 
 /* The scroll spacer covers the viewport many times over, so it must NOT take
    pointer events back — it would sit between the pointer and the sand for the
-   entire length of the page. */
+   entire length of the page. Rendered only by the home route: focus pages do
+   not drive the camera, so they have nothing to scroll. */
 #track {
   height: 420vh;
   pointer-events: none;

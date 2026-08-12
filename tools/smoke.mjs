@@ -300,6 +300,102 @@ try {
     `patch at z ${scroll.patch.toFixed(2)}, camera at z ${scroll.z1.toFixed(2)}`,
   );
 
+  // Pointer picking, at both ends of the scroll travel. The dip has to land
+  // under the cursor, and the way it stopped doing so was subtle: picking
+  // against a flat y=0 plane is self-consistent, so a round-trip through the
+  // projection would agree with itself and prove nothing. The invariant that
+  // has teeth ties the pick to the RAMP — the surface the renderer marches and
+  // the camera rides. Two forms of it, both exact:
+  //   · the ray through the centre pixel must land on the camera's own target
+  //   · off centre, the ray must pass through the ramp at the picked point
+  // Flat-plane picking failed the second by the eye's height above the ramp,
+  // which is why the error grew with scrolling rather than being a fixed nudge.
+  const pick = await page.evaluate(async () => {
+    const b = window.__beach;
+    const w = b.config.water;
+    const ramp = (z) => Math.min(0.9, Math.max(-1.3, (z - w.shoreZ) * w.slope));
+    const sub = (a, c) => [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
+    const norm = (a) => {
+      const l = Math.hypot(a[0], a[1], a[2]) || 1;
+      return [a[0] / l, a[1] / l, a[2] / l];
+    };
+    const cross = (a, c) => [
+      a[1] * c[2] - a[2] * c[1],
+      a[2] * c[0] - a[0] * c[2],
+      a[0] * c[1] - a[1] * c[0],
+    ];
+    // Deliberately rebuilt here rather than imported, so the check cannot
+    // agree with the code under test by sharing its arithmetic.
+    const basis = () => {
+      const c = b.camera, ce = Math.cos(c.elevation);
+      const ro = [
+        c.target[0] + Math.cos(c.azimuth) * ce * c.distance,
+        c.target[1] + Math.sin(c.elevation) * c.distance,
+        c.target[2] + Math.sin(c.azimuth) * ce * c.distance,
+      ];
+      const ww = norm(sub(c.target, ro));
+      const uu = norm(cross(ww, [0, 1, 0]));
+      return { ro, uu, vv: cross(uu, ww), ww, fov: 1 / Math.tan((c.fovDeg * Math.PI) / 360) };
+    };
+
+    const probe = (fx, fy) => {
+      const el = b.canvas;
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(
+        new PointerEvent("pointermove", {
+          clientX: r.left + r.width * fx,
+          clientY: r.top + r.height * fy,
+          bubbles: true,
+        }),
+      );
+      const { x, z, valid } = b.ptr;
+      const { ro, uu, vv, ww, fov } = basis();
+      const px = (fx - 0.5) * (r.width / r.height);
+      const py = 1 - fy - 0.5;
+      const rd = norm([
+        px * uu[0] + py * vv[0] + fov * ww[0],
+        px * uu[1] + py * vv[1] + fov * ww[1],
+        px * uu[2] + py * vv[2] + fov * ww[2],
+      ]);
+      // Distance along the ray to the picked column, taken in the horizontal
+      // plane so a grazing ray does not divide by a near-zero rd.y.
+      const t = ((x - ro[0]) * rd[0] + (z - ro[2]) * rd[2]) / (rd[0] * rd[0] + rd[2] * rd[2]);
+      return { x, z, valid, offRamp: Math.abs(ro[1] + rd[1] * t - ramp(z)) };
+    };
+
+    const sample = () => {
+      const centre = probe(0.5, 0.5);
+      // Spread across the frame, below the horizon so every ray meets sand.
+      const off = [probe(0.3, 0.62), probe(0.72, 0.55), probe(0.5, 0.85)];
+      return {
+        z: b.camera.target[2],
+        centreErr: Math.hypot(centre.x - b.camera.target[0], centre.z - b.camera.target[2]),
+        offRamp: Math.max(...off.map((p) => p.offRamp)),
+        valid: off.every((p) => p.valid),
+      };
+    };
+
+    const bottom = sample(); // the page is still scrolled down from above
+    scrollTo(0, 0);
+    await new Promise((r) => setTimeout(r, 1600));
+    const top = sample();
+    return { top, bottom };
+  });
+
+  for (const [where, p] of [["top", pick.top], ["bottom", pick.bottom]]) {
+    check(
+      `the dip lands under the cursor at the ${where} of the scroll`,
+      p.centreErr < 0.01 && p.offRamp < 0.01,
+      `z ${p.z.toFixed(2)}: centre pixel misses the camera target by ${p.centreErr.toFixed(3)}, ` +
+        `ray misses the ramp by ${p.offRamp.toFixed(3)} world units`,
+    );
+  }
+  check(
+    "the picked point is inside the interactive patch",
+    pick.top.valid && pick.bottom.valid,
+    "off-centre picks land in the clipmap, not past its edge",
+  );
+
   // Lateral swash. Measured through the SIMULATION's wetness channel, not the
   // picture: it proves the shared wave chunk bends the waterline for the sim
   // and the renderer alike, which is the invariant that matters. Differential,

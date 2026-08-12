@@ -1,25 +1,35 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-mode="full">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0d1520">
-<title>Arnav — Beach</title>
+<title>Adi — Beach</title>
+<meta name="description" content="A beach at low sun, where the sand is a live surface that remembers what touched it.">
 <link rel="stylesheet" href="/src/styles/tokens.css">
 <link rel="stylesheet" href="/src/styles/type.css">
 <link rel="stylesheet" href="/src/styles/scene.css">
+<link rel="stylesheet" href="/src/styles/page.css">
 </head>
 <body>
   <!-- The canvas must persist across route changes. The focus pull, and the
        sand keeping its state when you navigate back, both depend on one
-       WebGL context staying alive for the whole session. -->
+       WebGL context staying alive for the whole session. The router never
+       touches this element. -->
   <canvas id="scene" aria-hidden="true"></canvas>
-  <div id="app">
-    <!-- Phase 2 exit condition: scrolling an empty beach should be pleasant on
-         its own. Until the About sections exist, this spacer is what there is
-         to scroll. -->
-    <div id="track" aria-hidden="true"></div>
-  </div>
+
+  <!-- Nav lives outside #app deliberately: it is persistent (§4), and
+       re-creating it on every navigation would throw away keyboard focus
+       mid-interaction. Only aria-current changes. -->
+  <nav id="nav" aria-label="Primary">
+    <a class="brand" href="/">Adi</a>
+    <a href="/">About</a>
+    <a href="/work">Work</a>
+    <a href="/resume">Resume</a>
+    <a href="/contact">Contact</a>
+  </nav>
+
+  <main id="app"></main>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

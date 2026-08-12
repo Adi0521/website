@@ -1,0 +1,103 @@
+/* Nav and page furniture (PRD §4, §9).
+   Typography is provisional: type.css points at four woff2 files that are not
+   vendored yet, so everything below currently falls back to system fonts.
+   §15 Q1 is still open and blocks the real treatment. */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* ── nav ─────────────────────────────────────────────────────────────────── */
+
+#nav {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  padding: 0.9rem clamp(1rem, 4vw, 3rem);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+}
+
+/* Translucent over the sky on About, solid plate on focus pages. */
+:root[data-mode="full"] #nav {
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--foam);
+}
+:root[data-mode="focus"] #nav {
+  background: var(--foam);
+  color: var(--ink);
+}
+
+#nav a { color: inherit; text-decoration: none; opacity: 0.72; }
+#nav a:hover, #nav a:focus-visible { opacity: 1; }
+#nav .brand { font-weight: 700; letter-spacing: 0.22em; opacity: 1; margin-right: auto; }
+
+/* Current section marked with a filled dot. */
+#nav a[aria-current="page"] { opacity: 1; }
+#nav a[aria-current="page"]::before {
+  content: "●";
+  font-size: 0.6em;
+  margin-right: 0.5em;
+  vertical-align: 0.15em;
+}
+
+@media (max-width: 640px) {
+  #nav { gap: 0.9rem; font-size: 0.62rem; letter-spacing: 0.12em; }
+  #nav .brand { width: 100%; margin-bottom: 0.4rem; }
+}
+
+/* ── pages ───────────────────────────────────────────────────────────────── */
+
+.plate {
+  background: var(--foam);
+  color: var(--ink);
+  max-width: var(--measure);      /* 65–75 characters, per §9 */
+  margin: 3rem auto;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  border-radius: 3px;
+}
+
+.hero {
+  min-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 clamp(1rem, 4vw, 3rem);
+  max-width: var(--measure);
+  color: var(--foam);
+  text-shadow: 0 1px 24px color-mix(in srgb, var(--ink) 60%, transparent);
+}
+
+.hero h1 { font-size: clamp(2.5rem, 9vw, 6rem); margin: 0 0 1rem; }
+.lede { font-size: 1.15rem; max-width: 42ch; }
+
+h1, h2 { line-height: 1.15; }
+h1:focus-visible, h1:focus { outline: 2px solid var(--sea); outline-offset: 6px; }
+
+p { margin: 0 0 1.1em; }
+a { color: var(--sea-deep); }
+:root[data-mode="full"] .hero a { color: var(--sun-rim); }
+
+.util { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em;
+        text-transform: uppercase; opacity: 0.65; }
+
+.index { list-style: none; padding: 0; }
+.index li { margin: 0 0 1.4em; }
+
+.prevnext { display: flex; justify-content: space-between; gap: 1rem;
+            margin-top: 2.5rem; font-family: var(--mono); font-size: 0.8rem; }
+
+/* No canvas: the page is just a page, so it needs a readable background. */
+:root[data-scene="off"] .hero { color: var(--ink); text-shadow: none; }

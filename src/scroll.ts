@@ -50,7 +50,11 @@ export interface ScrollCameraOptions {
 
 export const DEFAULT_SCROLL: ScrollCameraOptions = {
   startZ: 2.0,
-  endZ: 7.0,
+  // As far as the ramp allows. The eye trails ~2.82 behind the target and the
+  // beach stops rising at z≈10.59, so 7.6 is within 0.1 of the point where the
+  // foreground turns into a shelf. Getting materially more travel than this
+  // means raising `beachY`'s 0.9 clamp, not raising this number.
+  endZ: 7.6,
   arc: 0.18, // ~10° end to end
   ease: 6,
 };

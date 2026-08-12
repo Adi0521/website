@@ -4,17 +4,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run validate && tsc --noEmit && vite build",
+    "build": "npm run validate && tsc --noEmit && vite build && node tools/prerender.mjs",
     "preview": "vite preview",
     "validate": "node tools/validate-shaders.mjs",
     "test:sim": "node tools/sim-unit.mjs",
     "check:context": "node tools/context-check.mjs",
-    "smoke": "node tools/smoke.mjs"
+    "smoke": "node tools/smoke.mjs",
+    "prerender": "node tools/prerender.mjs"
   },
   "devDependencies": {
-  "puppeteer": "^24.15.0",
-  "typescript": "^5.9.0",
-  "vite": "^7.1.0",
-  "vite-plugin-glsl": "^1.5.1"
+    "puppeteer": "^24.15.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0",
+    "vite-plugin-glsl": "^1.5.1"
   }
 }

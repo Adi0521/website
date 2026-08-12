@@ -120,13 +120,15 @@ export const DEFAULT_SAND: SandConfig = {
  *
  * MIRRORS `beachY` in src/gl/shaders/common/wave.glsl. That chunk is shared by
  * the simulation and the renderer precisely so they cannot disagree about the
- * waterline — but the camera has to know the same shape on the CPU to hold a
- * fixed height above the sand while it travels up the ramp, and shaders cannot
- * answer questions for JavaScript.
+ * waterline — but the CPU has to know the same shape, and shaders cannot answer
+ * questions for JavaScript. Two callers need it: the scroll camera, to hold a
+ * fixed height above the sand as it travels up the ramp, and pointer picking,
+ * to intersect the surface the renderer actually draws.
  *
  * Only this one line is duplicated; the parameters themselves are shared. If
  * `beachY` changes, change this with it. Drift here does not corrupt the
- * waterline — it sinks the camera into the beach or floats it above.
+ * waterline — it sinks the camera into the beach, or lands the cursor's dip
+ * somewhere the cursor is not.
  */
 export function beachHeight(z: number, water: WaterParams): number {
   return Math.min(0.9, Math.max(-1.3, (z - water.shoreZ) * water.slope));

@@ -23,7 +23,9 @@ jobs:
       - run: npm ci
       - name: Validate shaders
         run: npm run validate
-      - name: Typecheck and build
+      # Includes the prerender pass, which writes a real HTML file per route so
+      # the site is indexable — a client-rendered SPA serves crawlers nothing.
+      - name: Typecheck, build and prerender
         run: npm run build
 
       # Temporal behaviour goes through the unit harness, never a screenshot —
@@ -39,7 +41,7 @@ jobs:
         run: npm run smoke
 
       # Guards the assumption the two-mode design rests on: one WebGL context
-      # for the whole session. Discrete state, so SwiftShader answers it
-      # correctly. Skips cleanly if the runner has no WebGL2.
+      # for the whole session. Presses a mark into the sand, navigates the real
+      # routes, and looks for it afterwards, with a full page load as control.
       - name: Context persistence
         run: npm run check:context

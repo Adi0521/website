@@ -1,7 +1,7 @@
 # Beach — Personal Site PRD
 
 **Status:** Draft v0.4
-**Owner:** Arnav
+**Owner:** Adi
 **Last updated:** August 11, 2026
 
 **v0.4.** Engine ported out of the prototype into `src/gl` and `src/sand`. Both Phase 2 gaps closed — scroll-driven camera and camera-following clipmap (§13). Measured numbers refreshed against the shipped engine: the §6.2 fill-in curve, the §7.3 wave sequence, and the §11 tier table, whose Cinematic DPR drops to 1.5. Tier auto-detection, a render cap and an unfocused throttle are built (§11). Swash reach now varies along the beach (§7.3). Verification gate restated against the tools that actually exist (§14).
@@ -53,7 +53,7 @@ A personal site set on a beach at low sun. Sand is a live, deformable surface th
 
 ```
   ┌──────────────────────────────────────────────────┐
-  │  ARNAV        About   Work   Resume   Contact    │   ← persistent nav
+  │  Adi        About   Work   Resume   Contact    │   ← persistent nav
   ├──────────────────────────────────────────────────┤
   │   /  ABOUT — full beach, everything live         │
   │   ├── hero            title carved in sand       │

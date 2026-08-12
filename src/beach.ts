@@ -395,6 +395,7 @@ export class Beach {
       (e.clientX - r.left) / r.width,
       1 - (e.clientY - r.top) / r.height, // shader convention: Y up
       r.width / r.height,
+      this.config.water,
     );
     this.ptr.inside = true;
     // Valid means "on the ground and inside the patch". Outside it there is

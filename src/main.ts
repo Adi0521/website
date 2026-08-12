@@ -2,46 +2,86 @@ import { Beach } from "./beach";
 import { GLUnsupported } from "./gl/context";
 import { ShaderError } from "./gl/program";
 import { ScrollCamera } from "./scroll";
+import { Router, type RouteMatch } from "./router/router";
+import { ROUTES, STATIC_PATHS, notFound } from "./routes/views";
 
 /**
- * PHASE 2 — engine ported from prototype/sand-phase1.html into src/gl and
- * src/sand. Two gaps remain before the phase closes, both camera work:
+ * PHASE 3 — two modes. Routing is in; the focus pull itself is not.
  *
- *   1. Scroll-driven camera — never built. The exit condition is that
- *      scrolling an empty beach is pleasant on its own, and it is untested.
- *   2. Camera-following clipmap — the field is a bounded patch and
- *      interaction stops at its edge. Dollying makes that worse.
+ * What works today: real routes, real URLs, back and forward, deep links, and
+ * one WebGL context across all of it. Entering a focus route stops the loop
+ * (§9) and leaving it resumes with bounded catch-up, so the sand comes back
+ * older rather than frozen (§10).
  *
- * Then Phase 3 (routing + focus pull) BEFORE any project content.
+ * What is still missing from §10: the transition. The scene currently cuts
+ * rather than pulling focus — no camera push, no depth-of-field ramp, no
+ * desaturation, and no render-once-to-a-texture. `stop()` and `start()` are
+ * the seam that goes on.
  */
 
-// Phase 3 scaffolding: /check/* runs the context-persistence harness instead
-// of the scene. Delete this branch and src/check/ once a router is chosen.
-// Dev-only: the guard is statically false in a production build, so the
-// harness is tree-shaken out rather than shipped as a live /check/ route.
-if (import.meta.env.DEV && location.pathname.startsWith("/check/")) {
-  import("./check/context-check").then((m) => m.run());
-} else {
-  boot();
-}
+boot();
 
 function boot(): void {
-  const canvas = document.getElementById("scene") as HTMLCanvasElement | null;
-  if (!canvas) throw new Error("#scene canvas missing");
+  const container = document.getElementById("app");
+  if (!container) throw new Error("#app missing");
 
-  try {
-    const beach = new Beach({ canvas, onUnavailable: fallback });
-    // PRD §12: reduced motion means no camera motion either, so the scroll
-    // driver is not wired at all rather than wired and suppressed.
-    const scroll = beach.reducedMotion ? null : new ScrollCamera(beach);
-    if (scroll) beach.onFrame = (dt) => scroll.update(dt);
-    beach.start();
-    console.info(
-      `[beach] ${beach.tier.name} — field ${beach.field.width}×${beach.field.height}`,
-    );
-    Object.assign(window, { __beach: beach, __scroll: scroll });
-  } catch (err) {
-    fallback(err as Error);
+  let beach: Beach | null = null;
+  let scroll: ScrollCamera | null = null;
+
+  const canvas = document.getElementById("scene") as HTMLCanvasElement | null;
+  if (canvas) {
+    try {
+      beach = new Beach({ canvas, onUnavailable: fallback });
+      // PRD §12: reduced motion means no camera motion either, so the scroll
+      // driver is not wired at all rather than wired and suppressed.
+      scroll = beach.reducedMotion ? null : new ScrollCamera(beach);
+      if (scroll) beach.onFrame = (dt) => scroll!.update(dt);
+      console.info(
+        `[beach] ${beach.tier.name} — field ${beach.field.width}×${beach.field.height}`,
+      );
+    } catch (err) {
+      fallback(err as Error);
+      beach = null;
+    }
+  }
+
+  const router = new Router({
+    routes: ROUTES,
+    notFound,
+    container,
+    onNavigate: (to) => {
+      markCurrent(to);
+      if (!beach) return;
+      // §9: focus pages turn the simulation, the scheduler and the RAF loop
+      // off entirely, so they cost approximately nothing after the first
+      // frame. §10: coming back resumes with catch-up, so marks left before
+      // navigating away are still there, further eroded.
+      if (to.route.mode === "focus") beach.stop();
+      else beach.start();
+    },
+  });
+
+  // The router renders whatever the address bar already says, which is what
+  // makes a deep link land directly in focus mode without playing a
+  // transition it never entered from (§10).
+  router.start();
+
+  // __staticPaths is read by tools/prerender.mjs so the route list has a
+  // single source: adding a project cannot leave its page unprerendered.
+  Object.assign(window, {
+    __beach: beach, __scroll: scroll, __router: router, __staticPaths: STATIC_PATHS,
+  });
+}
+
+/** Marks the nav item for the section being viewed. §4: a filled dot. */
+function markCurrent(to: RouteMatch): void {
+  const section = "/" + (to.path.split("/")[1] ?? "");
+  for (const a of Array.from(document.querySelectorAll<HTMLAnchorElement>("#nav a"))) {
+    if (a.classList.contains("brand")) continue;
+    const href = a.getAttribute("href") ?? "";
+    const match = href === "/" ? to.path === "/" : section === href;
+    if (match) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
   }
 }
 
@@ -52,8 +92,7 @@ function boot(): void {
  */
 function fallback(err: GLUnsupported | ShaderError | Error): void {
   document.documentElement.dataset.scene = "off";
-  const canvas = document.getElementById("scene");
-  if (canvas) canvas.remove();
+  document.getElementById("scene")?.remove();
   const detail = err instanceof ShaderError ? `${err.stage}: ${err.log}` : err.message;
   console.warn("[beach] scene unavailable —", detail);
 }
