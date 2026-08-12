@@ -107,6 +107,15 @@ export class Beach {
   autoDowngrade = true;
 
   private fpsEma = 0;
+  /**
+   * The frame clock was reset from outside the loop, so the next interval
+   * spans that reset rather than a frame. It is a fraction of a real frame
+   * time, and seeding the EMA with it reports a frame rate several times the
+   * truth — the blend is 0.1, so one bad sample still dominates fifty frames
+   * later. Long enough to outlive WARMUP_SECONDS on a slow machine and
+   * suppress the downgrade that low frame rates exist to trigger.
+   */
+  private clockReset = true;
   private lastRender = 0;
   /** Timestamp the frame rate became trustworthy again. */
   private warmFrom = 0;
@@ -123,9 +132,20 @@ export class Beach {
   /** Called each frame before the sim steps. The scroll camera hangs here. */
   onFrame: ((dt: number) => void) | null = null;
 
-  /** Smoothed frames per second. 0 until the loop has run. */
+  /** Smoothed frames per second. 0 until two frames have run back to back. */
   get fps(): number {
     return Math.round(this.fpsEma);
+  }
+
+  /**
+   * Restart the frame clock without banking the gap. Everything that stops the
+   * loop drawing — hidden tab, scrolled off, blurred window, catch-up — goes
+   * through here, so the interval that straddles the gap is marked and left out
+   * of the frame rate.
+   */
+  private resetClock(now = performance.now()): void {
+    this.last = now;
+    this.clockReset = true;
   }
 
   /** Seconds of simulated time elapsed. Tracks the wall clock, unlike the
@@ -171,7 +191,7 @@ export class Beach {
     // advances by the whole elapsed time between two renders.
     const gap = this.stoppedAt === null ? 0 : (now - this.stoppedAt) / 1000;
     this.stoppedAt = null;
-    this.last = now;
+    this.resetClock(now);
     this.warmFrom = now;
     if (gap > 0) this.catchUp(gap);
     this.raf = requestAnimationFrame(this.frame);
@@ -249,7 +269,7 @@ export class Beach {
     // Off-screen and hidden reset the clock rather than banking time, so a tab
     // left in the background does not run an hour of simulation on return.
     if (!this.visible || !this.onscreen) {
-      this.last = now;
+      this.resetClock(now);
       return;
     }
 
@@ -272,7 +292,12 @@ export class Beach {
     // the sim in real time, so a low rate does not slow the waves down, it
     // samples their motion more coarsely. Judder and a wrong cadence look
     // similar on screen and have opposite causes.
-    if (elapsed > 0) {
+    // The first interval after a clock reset is discarded rather than blended:
+    // it is measured from whenever the reset happened, not from the previous
+    // frame, so it is short by an arbitrary amount and always reads fast.
+    if (this.clockReset) {
+      this.clockReset = false;
+    } else if (elapsed > 0) {
       const inst = 1 / elapsed;
       this.fpsEma = this.fpsEma ? this.fpsEma * 0.9 + inst * 0.1 : inst;
       // Only judged while focused and unpaced-limited: the unfocused cap would
@@ -409,13 +434,13 @@ export class Beach {
 
     document.addEventListener("visibilitychange", () => {
       this.visible = !document.hidden;
-      this.last = performance.now();
+      this.resetClock();
     });
 
     this.focused = document.hasFocus();
     addEventListener("focus", () => {
       this.focused = true;
-      this.last = performance.now();
+      this.resetClock();
       // Do not judge the tier on frames measured while throttled, and give the
       // rate time to settle again before trusting it.
       this.fpsEma = 0;
@@ -430,7 +455,7 @@ export class Beach {
       this.observer = new IntersectionObserver(
         (entries) => {
           this.onscreen = entries[0]?.isIntersecting ?? true;
-          this.last = performance.now();
+          this.resetClock();
         },
         { threshold: 0.01 },
       );

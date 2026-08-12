@@ -154,32 +154,49 @@ try {
     `${info.distinct} distinct colour buckets`,
   );
 
-  // Render pacing. Verified by counting frames against a deliberately low cap,
-  // because the headless renderer is already far slower than any real cap and
-  // a 60fps limit would never engage here.
-  const pace = await page.evaluate(async () => {
+  // Render pacing, measured against what this machine can actually draw rather
+  // than against a fixed cap. A fixed low cap does not work here: SwiftShader
+  // renders this scene at somewhere between 0.3 and 3fps depending on load, so
+  // a cap of 1 sometimes sits ABOVE the uncapped rate, and then no cap can
+  // limit anything and the assertion is a coin flip. Which is §14's own lesson
+  // — software rendering cannot test wall-clock behaviour — reaching a check
+  // that §14 also mandates. So: measure free-running first, derive a cap at a
+  // third of it, and if the machine has no headroom to spare, skip and say so.
+  const CAP_FLOOR = 6; // fps below which a cap cannot be told from the ceiling
+  const pace = await page.evaluate(async (floor) => {
     const b = window.__beach;
     b.autoDowngrade = false; // a deliberate low cap would otherwise trip it
     const measure = async (cap, ms) => {
       b.maxFps = cap;
-      await new Promise((r) => setTimeout(r, 400)); // let the cap take effect
+      // Settle for a few frames at the new cap, not a fixed 400ms — at 2fps
+      // that is less than one frame and the count starts mid-transition.
+      await new Promise((r) => setTimeout(r, Math.max(400, 3000 / cap)));
       const f0 = b.frames, t0 = performance.now();
       await new Promise((r) => setTimeout(r, ms));
       return (b.frames - f0) / ((performance.now() - t0) / 1000);
     };
-    // Uncapped first, so the capped number is compared against what this
-    // machine can actually do rather than against a hoped-for constant.
+    const restore = () => ((b.maxFps = 60), (b.autoDowngrade = true));
     const free = await measure(1000, 3000);
-    const capped = await measure(1, 4000);
-    b.maxFps = 60;
-    b.autoDowngrade = true;
-    return { free, capped };
-  });
-  check(
-    "the render cap actually limits the loop",
-    pace.capped < pace.free * 0.7 && pace.capped <= 1.4,
-    `uncapped ${pace.free.toFixed(1)}fps → ${pace.capped.toFixed(1)}fps at a cap of 1`,
-  );
+    if (free < floor) return restore(), { free, skipped: true };
+    const cap = Math.max(2, free / 3);
+    const capped = await measure(cap, 4000);
+    restore();
+    // The pacing gate allows a frame 4ms early (jitter slack), so the real
+    // ceiling sits above the nominal cap — by 9% at 20fps and 30% at 60fps.
+    // Comparing against the nominal number would fail the faster the GPU is.
+    return { free, cap, capped, ceiling: 1000 / (1000 / cap - 4) };
+  }, CAP_FLOOR);
+  if (pace.skipped) {
+    console.log(
+      `  skip  the render cap actually limits the loop — ${pace.free.toFixed(1)}fps uncapped, no headroom under a cap`,
+    );
+  } else {
+    check(
+      "the render cap actually limits the loop",
+      pace.capped < pace.free * 0.7 && pace.capped <= pace.ceiling * 1.25,
+      `uncapped ${pace.free.toFixed(1)}fps → ${pace.capped.toFixed(1)}fps at a cap of ${pace.cap.toFixed(1)}`,
+    );
+  }
 
   // Auto-downgrade (PRD §11, "still to build"). SwiftShader genuinely cannot
   // keep up, so this environment exercises the path for real — but a machine
@@ -190,10 +207,15 @@ try {
     b.maxFps = 60;
     b.autoDowngrade = true;
     const t0 = performance.now();
+    // Sample as we poll. Downgrading zeroes the EMA to re-measure the new
+    // tier, so reading b.fps afterwards reports 0 and loses the number that
+    // explains the decision.
+    let fps = b.fps;
     while (b.tier.name === from && performance.now() - t0 < 12000) {
       await new Promise((r) => setTimeout(r, 250));
+      if (b.tier.name === from) fps = b.fps;
     }
-    return { from, to: b.tier.name, secs: (performance.now() - t0) / 1000, fps: b.fps };
+    return { from, to: b.tier.name, secs: (performance.now() - t0) / 1000, fps };
   });
   if (down.to === down.from && down.fps >= 45) {
     console.log(`  skip  auto-downgrade — machine sustains ${down.fps}fps, path not exercised`);
