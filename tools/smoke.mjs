@@ -558,6 +558,37 @@ try {
       for (let i = 0; i < b.field.width * b.field.height; i++) if (px[i * 4] < lo) lo = px[i * 4];
       return lo;
     };
+
+    // Deepest point within `span` world units of a world position.
+    //
+    // The whole-field probe above stopped being able to answer "did the
+    // POINTER mark the sand" the moment About started writing into the field
+    // on its own: §8.1's hero carve is deeper than the pointer's default
+    // brush, so the global minimum was the title, and the assertion passed
+    // whether or not the pointer worked at all. A local probe asks the
+    // question the check is named after.
+    window.__probeNear = (x, z, span) => {
+      const b = window.__beach, gl = b.gl;
+      const uv = b.field.worldToField(x, z);
+      if (!uv) return null;
+      const cx = Math.round(uv[0] * b.field.width);
+      const cy = Math.round(uv[1] * b.field.height);
+      const rx = Math.max(1, Math.round((span / (2 * b.field.domainX)) * b.field.width));
+      const ry = Math.max(1, Math.round((span / (2 * 2.6)) * b.field.height));
+      const x0 = Math.max(0, cx - rx), y0 = Math.max(0, cy - ry);
+      const w = Math.min(b.field.width - x0, rx * 2), h = Math.min(b.field.height - y0, ry * 2);
+      if (w < 1 || h < 1) return null;
+      const fb = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.field.texture, 0);
+      const px = new Float32Array(w * h * 4);
+      gl.readPixels(x0, y0, w, h, gl.RGBA, gl.FLOAT, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb);
+      let lo = 0;
+      for (let i = 0; i < w * h; i++) if (px[i * 4] < lo) lo = px[i * 4];
+      return lo;
+    };
     return true;
   });
 
@@ -571,13 +602,20 @@ try {
       await page.mouse.move(x, y);
     }
     await new Promise((r) => setTimeout(r, 900));
-    return page.evaluate(() => ({
-      deepest: window.__probeDeepest(),
-      ptr: window.__beach.pointer,
-      focus: window.__beach.focusAmount,
-      camZ: +window.__beach.camera.target[2].toFixed(2),
-      running: window.__beach.frames,
-    }));
+    return page.evaluate(() => {
+      const p = window.__beach.pointer;
+      return {
+        deepest: window.__probeDeepest(),
+        // Local to wherever the pointer actually ended up, so About's own
+        // marks cannot stand in for it. Generous enough to cover the sweep's
+        // last couple of moves without reaching the hero carve at z≈2.7.
+        atPointer: window.__probeNear(p.x, p.z, 0.22),
+        ptr: p,
+        focus: window.__beach.focusAmount,
+        camZ: +window.__beach.camera.target[2].toFixed(2),
+        running: window.__beach.frames,
+      };
+    });
   };
 
   const settleTo = async (path, want) => {
@@ -598,12 +636,71 @@ try {
   const onBeach = await settleTo("/", 0);
   const onFocus = await settleTo("/resume", 1);
 
-  check("the pointer marks the sand on the beach", onBeach.deepest < -0.02,
-    `deepest ${onBeach.deepest.toFixed(3)} · ptr ${JSON.stringify(onBeach.ptr)} · ` +
-    `focus ${onBeach.focus} · camZ ${onBeach.camZ}`);
-  check("the pointer leaves no mark on a focus page", onFocus.deepest > -0.005,
-    `deepest ${onFocus.deepest.toFixed(3)} · focus ${onFocus.focus}`);
+  check("the pointer marks the sand on the beach",
+    onBeach.atPointer !== null && onBeach.atPointer < -0.02,
+    `at the pointer ${onBeach.atPointer === null ? "off-patch" : onBeach.atPointer.toFixed(3)} · ` +
+    `ptr ${JSON.stringify(onBeach.ptr)} · focus ${onBeach.focus} · camZ ${onBeach.camZ}`);
+  // Stays a WHOLE-field probe, and is stronger for it: on a focus page nothing
+  // may write to the sand, so this now also proves the hero carve and the
+  // timeline are suppressed and not merely the pointer (§10).
+  check("nothing marks the sand on a focus page", onFocus.deepest > -0.005,
+    `deepest anywhere ${onFocus.deepest.toFixed(3)} · focus ${onFocus.focus}`);
   await page.evaluate(() => window.__router.navigate("/"));
+
+  // ── Phase 4: About writes into the sand (§8.1, §8.2) ─────────────────────
+  //
+  // Shape, position and response only. Whether carved type is legible is an
+  // appearance question, and §14 is explicit that a headless screenshot cannot
+  // answer one — under SwiftShader the value noise collapses and the baked
+  // ripples vanish entirely. What is checkable is that the title is pressed
+  // where the title is, that the trail holds prints, and that engaging a
+  // milestone presses it deeper.
+  const about = await page.evaluate(async () => {
+    // Drive §8.1's actual behaviour rather than poking the carve directly:
+    // scroll the hero fully out of view, then back, which is the "scrolling
+    // back re-presses" edge. Doing it this way means the test fails if the
+    // re-press wiring breaks, not just if the carve does.
+    scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
+    await new Promise((r) => setTimeout(r, 500));
+    const awayAtBottom = window.__about?.state.away ?? 0;
+    scrollTo({ top: 0, behavior: "instant" });
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const heroZ = 2.7; // HeroCarve's centreZ
+
+    return {
+      state: window.__about?.state ?? null,
+      awayAtBottom,
+      // Narrow enough to sit inside the title's own rect and clear of the
+      // pointer's marks further up the beach.
+      hero: window.__probeNear(0, heroZ, 0.55),
+      // §12: the trail has to be a real, readable list with the canvas gone.
+      listItems: document.querySelectorAll("#timeline .trail li").length,
+      // It must NOT be interactive while there is nothing to activate — a
+      // button that does nothing announces an action that does not exist.
+      controls: document.querySelectorAll("#timeline button, #timeline a").length,
+      // Nothing along the trail may be pressed into the sand yet. Probed at
+      // the milestone Z values themselves, which is exactly where the removed
+      // footprint brush used to write.
+      alongTrail: [2.0, 3.4].map((z) => window.__probeNear(0.16, z, 0.12)),
+    };
+  });
+
+  check("the trail is a real list in the DOM",
+    about.listItems === 5, `${about.listItems} milestones as list items`);
+  check("the trail is not interactive yet", about.controls === 0,
+    `${about.controls} focusable controls — a button with no action is a lie to a screen reader`);
+  check("the trail presses nothing into the sand yet",
+    about.alongTrail.every((h) => h === null || h > -0.02),
+    `deepest along the trail ${about.alongTrail.map((h) => (h === null ? "off-patch" : h.toFixed(3))).join(", ")}`);
+  check("scrolling away lifts the hero carve", about.awayAtBottom >= 1,
+    `hero ${about.awayAtBottom.toFixed(2)} hero-heights out of view at the bottom`);
+  check("scrolling back re-presses the title",
+    about.state !== null && about.state.carve > 0.2,
+    `carve pressure ${about.state ? about.state.carve.toFixed(2) : "n/a"} after scrolling back`);
+  check("the title is carved into the sand",
+    about.hero !== null && about.hero < -0.05,
+    `deepest under the title ${about.hero === null ? "off-patch" : about.hero.toFixed(3)}`);
 
   // Lateral swash. Measured through the SIMULATION's wetness channel, not the
   // picture: it proves the shared wave chunk bends the waterline for the sim

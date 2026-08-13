@@ -160,7 +160,11 @@ The rim dropping on the same schedule as the hole is the diagnostic that slumpin
 
 Two caveats on comparing these numbers to anything. **The stamp converges to `-depth`**, so the absolute floor is whatever `depth` is set to — v0.3's table showed −0.600, which is the same curve normalised but taken at `depth` ≈ 0.6, not at the shipped default. **And the curve is resolution-dependent**: slumping compares neighbouring texels, so a finer field has smaller differences between them, fewer pairs past the angle of repose, and slower fill. The harness pins the viewport for this reason.
 
-**Fill delay** exists because freshly pressed sand is compacted; the delay is that packing giving way. It resets under the brush via channel A. **Timeline footprints will want a much longer delay than a general mark**, which argues for making delay per-brush rather than global in Phase 4.
+**Fill delay** exists because freshly pressed sand is compacted; the delay is that packing giving way. It resets under the brush via channel A. Per-brush rather than global, as of Phase 4 — with two corrections to what that was assumed to mean.
+
+**It was global in effect, not just in name.** The delay reached the shader as one uniform, and the ramp it feeds gates transport for *every* texel. So the instant any long-delay brush went active, the whole field stopped eroding for that step — a footprint on one side of the beach freezing a stroke someone was drawing on the other. Invisible while every brush shared one delay, which is why it survived to here. The delay is now blended in by the brush's own coverage, so it applies under the mark that set it and nowhere else.
+
+**And a delay cannot outlive the stamp that set it.** There is no per-texel storage for it — §6.1 spends all four channels — so it is not a property the sand remembers. It buys the seconds *after* a press lifts, and nothing more. Anything that must persist for minutes is persisted by being restamped, which is what §8.2's trail does.
 
 ### 6.3 Rendering — and an open fork
 

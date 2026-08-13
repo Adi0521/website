@@ -234,10 +234,18 @@ export class SandField {
     this.simProg.f("uRadius", active ? active.radius : defaults.radius);
     this.simProg.f("uDepth", active ? active.depth : defaults.depth);
     this.simProg.f("uRim", active ? active.rim : defaults.rim);
-    // Per-brush fill delay falls out for free while only one brush is stamped
-    // per pass, so timeline footprints can already outlast an ordinary mark
-    // without the global-delay problem PRD §6.2 flags.
-    this.simProg.f("uDelay", active?.fillDelay ?? transport.delay);
+    // Two delays, not one. `uDelay` is the field's ordinary rate and applies
+    // wherever no source is pressing; `uBrushDelay` applies under this brush,
+    // blended in by coverage. They were a single uniform, which made a
+    // per-brush delay silently global — see the note in sim.frag.
+    //
+    // Worth knowing before relying on this: a fill delay only holds while its
+    // source is actually pressing. It is not stored per texel — there is no
+    // channel left, §6.1 spends all four — so it cannot outlive the stamp that
+    // set it. A mark that must persist for minutes is held by being restamped,
+    // not by being delayed; the delay buys the seconds after the press lifts.
+    this.simProg.f("uDelay", transport.delay);
+    this.simProg.f("uBrushDelay", active?.fillDelay ?? transport.delay);
 
     // The mask sampler is bound on EVERY step, even with nothing to carve.
     // Left unset it defaults to unit 0, which holds the previous field — and

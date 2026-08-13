@@ -17,7 +17,7 @@ uniform vec2  uTexel, uA, uB;
 uniform vec2  uOrigin, uShift;
 uniform float uAspect, uPressure, uRadius, uDepth, uRim;
 uniform float uDt, uDecay, uSmooth, uReset;
-uniform float uSlump, uRepose, uInfill, uDelay;
+uniform float uSlump, uRepose, uInfill, uDelay, uBrushDelay;
 uniform float uDX, uDZ, uHtw, uWaveErase, uDryRate;
 #include "common/wave.glsl";
 
@@ -40,7 +40,13 @@ float maskAt(vec2 wxz){
   if(uMaskPress <= 0.0) return 0.0;
   vec2 m = (wxz - uMaskRect.xy)/(2.0*uMaskRect.zw) + 0.5;
   if(any(lessThan(m, vec2(0.0))) || any(greaterThan(m, vec2(1.0)))) return 0.0;
-  return texture(uMask, m).r;
+  // textureLod, not texture. the rect test above returns per texel, so this
+  // fetch is inside NON-UNIFORM control flow, and an implicit-LOD fetch there
+  // has undefined derivatives by spec. it happens to work because the mask has
+  // no mipmaps and the lod is therefore always 0 — which is exactly the kind of
+  // undefined-but-fine that holds until it meets an untested driver, and §11's
+  // low-end tier is still unmeasured. stating the lod costs nothing.
+  return textureLod(uMask, m, 0.0).r;
 }
 void main(){
   // where this texel's world position sat in the previous field. the shift is
@@ -83,15 +89,22 @@ void main(){
   // age resets under the brush, so the mark holds briefly before it fills
   age = min((age + uDt)*(1.0 - clamp(stampAmt*3.0, 0.0, 1.0)), 30.0);
 
-  // per-brush fill delay, resolved PER TEXEL rather than globally. §6.2 wants
-  // timeline footprints to outlast an ordinary mark, and the hero title to
-  // outlast both — but the delay gates transport for a texel, so a single
-  // global value would make the longest-lived mark on screen set the erosion
-  // rate for the whole beach. Under the carve the mask's delay wins; the
-  // moment the carve lifts, mCore and mRing go to zero and the sand there
-  // reverts to the ordinary rate, which is precisely §8.1's "scrolling away
-  // accelerates decay".
-  float delay = mix(uDelay, uMaskDelay, clamp(mCore + mRing, 0.0, 1.0));
+  // per-brush fill delay, resolved PER TEXEL and scoped to the source's own
+  // footprint.
+  //
+  // It was a uniform, which quietly made it global: `ramp` gates transport for
+  // every texel, so the instant a long-delay brush went active — a timeline
+  // footprint, say, at ten times an ordinary mark — the WHOLE field stopped
+  // eroding for that step, including a stroke someone was drawing on the other
+  // side of the beach. Invisible with one brush and one delay; a flicker
+  // between two erosion rates the moment §6.2's per-brush delay is actually
+  // used for what it is for.
+  //
+  // So uDelay is the field's ordinary rate and uBrushDelay is this brush's,
+  // blended by how much of this texel the brush actually covers.
+  float cov  = clamp(core + ring, 0.0, 1.0);
+  float mcov = clamp(mCore + mRing, 0.0, 1.0);
+  float delay = mix(mix(uDelay, uBrushDelay, cov), uMaskDelay, mcov);
   float ramp = delay < 0.02 ? 1.0 : smoothstep(delay*0.55, delay*1.45, age);
 
   float hL = texture(uPrev, uv0 - vec2(uTexel.x,0.0)).r;

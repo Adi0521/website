@@ -36,12 +36,18 @@ body { margin: 0; background: var(--ink); color: var(--sand-lit); }
    they cannot if the copy is in the way. Only things that need a pointer take
    one back, in page.css. */
 
-/* The scroll spacer covers the viewport many times over, so it must NOT take
-   pointer events back — it would sit between the pointer and the sand for the
-   entire length of the page. Rendered only by the home route: focus pages do
-   not drive the camera, so they have nothing to scroll. */
-#track {
-  height: 420vh;
+/* The timeline is what drives the camera now — it replaced the 420vh scroll
+   spacer Phase 2 used to stand in for About's sections, and is deliberately
+   about as tall, so the journey up the beach still takes the same amount of
+   scrolling. §8.2 wants one milestone per screenful, so its height is a
+   consequence of how many milestones there are rather than a magic number.
+
+   Like the spacer, it covers the viewport many times over and must NOT take
+   pointer events back across all of that — it would sit between the pointer
+   and the sand for the entire length of the page, and G1 is that a visitor
+   tries to touch the sand unprompted. Only the milestone buttons take a
+   pointer, in page.css. */
+#timeline {
   pointer-events: none;
 }
 

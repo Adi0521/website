@@ -1,7 +1,7 @@
-/* Nav and page furniture (PRD §4, §9).
-   Typography is provisional: type.css points at four woff2 files that are not
-   vendored yet, so everything below currently falls back to system fonts.
-   §15 Q1 is still open and blocks the real treatment. */
+/* Nav and page furniture (PRD §4, §8.2, §9). Typography is real: type.css
+   vendors all four woff2 files, Mattone for display and Sligoil for anything
+   using an arrow or a dot — §5 is explicit that those marks exist in the mono
+   face alone. */
 
 .visually-hidden {
   position: absolute;
@@ -102,6 +102,36 @@
 .hero h1 { font-size: clamp(2.5rem, 9vw, 6rem); margin: 0 0 1rem; }
 .lede { font-size: 1.15rem; max-width: 42ch; }
 
+/* ── the footprint trail (§8.2) ───────────────────────────────────────────── */
+
+/* One milestone per screenful, which is what sets the trail's spacing in the
+   sand: the camera travels 2.0→7.6 across About's whole scroll, so a
+   milestone every ~85vh lands roughly on the ~1.4 world units between prints.
+   Change one and the other stops lining up. */
+#timeline { max-width: var(--measure); padding: 0 clamp(1rem, 4vw, 3rem); }
+#timeline > h2 { color: var(--foam); text-shadow: 0 1px 24px color-mix(in srgb, var(--ink) 60%, transparent); }
+:root[data-scene="off"] #timeline > h2 { color: var(--ink); text-shadow: none; }
+
+.trail { list-style: none; margin: 0; padding: 0; }
+.trail li { min-height: 85vh; display: flex; align-items: center; }
+
+/* Text over the live scene, so it needs the same lift the hero copy gets.
+   Deliberately NOT pointer-events: auto — nothing here is interactive yet, and
+   a block this tall taking the pointer would sit between the visitor and the
+   sand for the whole length of the trail. The reveal-on-hover treatment goes
+   back on when there is something to reveal. */
+.milestone {
+  display: block;
+  padding: 0.6rem 0;
+  color: var(--foam);
+  text-shadow: 0 1px 24px color-mix(in srgb, var(--ink) 60%, transparent);
+}
+
+.milestone .util { display: block; opacity: 0.8; }
+.milestone .detail { display: block; font-size: 1.05rem; }
+
+:root[data-scene="off"] .milestone { color: var(--ink); text-shadow: none; }
+
 h1, h2 { line-height: 1.15; }
 
 /* The router focuses the heading on every navigation so keyboard and screen
@@ -144,4 +174,8 @@ a { color: var(--sea-deep); }
 @media (prefers-reduced-motion: reduce) {
   .plate { animation: none; }
   #nav { transition: none; }
+  /* §12: the slideshow becomes a list, and so does the trail. With no camera
+     travelling past them the milestones have to stand on their own, and 85vh
+     of air between them is a scroll through nothing. */
+  .trail li { min-height: 0; }
 }

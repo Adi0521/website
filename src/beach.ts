@@ -166,18 +166,18 @@ export class Beach {
   onFrame: ((dt: number) => void) | null = null;
 
   /**
-   * Mark sources the page installs — the hero carve and the footprint
-   * timeline (§8.1, §8.2).
+   * The hero carve (§8.1). A second footprint source INSIDE the single stamp,
+   * so it costs nothing to have it live alongside the pointer.
    *
-   * Two hooks rather than one, because they are not the same kind of thing.
-   * The mask is a second footprint source INSIDE the single stamp, so it costs
-   * nothing to have it live alongside the pointer. `pageBrush` genuinely
-   * competes for the one brush per step, and the pointer wins it: someone
-   * actively pressing the sand must never find their mark dropped because a
-   * footprint was due to be restamped that frame.
+   * There is deliberately no matching hook for page marks that need the BRUSH.
+   * One was tried for §8.2's footprints and removed: the field takes one brush
+   * per step, so handing the page whatever frames the pointer did not want
+   * turned "the pointer wins ties" into "the page is starved", and the trail
+   * only appeared when the cursor was off the sand. Anything wanting to press
+   * alongside the pointer needs the separate stamp pass §6.4 defers to Phase 5,
+   * not a share of the one brush.
    */
   maskStamp: (() => MaskStamp | null) | null = null;
-  pageBrush: (() => Brush | null) | null = null;
 
   /**
    * The camera with the pull applied. Derived rather than written back, because
@@ -449,12 +449,9 @@ export class Beach {
     // goes on eroding — waves still reach it, wind still fills it in — but
     // nothing new is written while there is text to read.
     if (this.focus > NO_BRUSH_ABOVE) return null;
-    // The page gets the brush only when the pointer is not using it. A
-    // footprint that misses its frame is restamped on the next one; a pressed
-    // mark that misses its frame is a hole in the stroke someone just drew.
-    if (!p.inside || !p.valid) return this.pageBrush?.() ?? null;
+    if (!p.inside || !p.valid) return null;
     const b = this.field.worldToField(p.x, p.z);
-    if (!b) return this.pageBrush?.() ?? null;
+    if (!b) return null;
     // If the previous point has since left the patch, collapse the segment to a
     // point rather than sweeping from a clamped edge position.
     const a = this.field.worldToField(p.prevX, p.prevZ) ?? b;

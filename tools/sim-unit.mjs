@@ -295,6 +295,220 @@ try {
     return `${gpu.planned.crossings} and ${gpu.oneLeap.crossings} sign changes across the row`;
   });
 
+  // ── Phase 4: the mask stamp (PRD §8.1) ───────────────────────────────────
+  //
+  // §14 is right that software rendering cannot judge appearance, so this does
+  // not try to. Whether carved type is LEGIBLE is a question for a real GPU and
+  // a person. Whether the mask stamped the shape it was given is numeric, and
+  // that is what is asserted here: a probe inside a stroke against a probe
+  // inside a counter.
+  //
+  // The mask is built from raw pixel data rather than from rasterized text on
+  // purpose. Two reasons. The thing under test is the stamp path in sim.frag,
+  // not the font stack — a test that also depended on Mattone arriving over the
+  // network would fail for a reason that has nothing to do with the sand. And
+  // canvas `filter: blur()` is not guaranteed under SwiftShader, so the soft
+  // edge the rim is derived from is computed here instead of drawn.
+  console.log("\nmask stamp — text carved as a field, not as a path\n");
+
+  const mask = await page.evaluate(() => {
+    const b = window.__beach;
+    b.stop();
+    b.autoDowngrade = false;
+    b.waves.swashBody = 0; b.waves.swashFilm = 0; b.waves.amp = 0; b.waves.phase = 0;
+    b.field.setOrigin(0, 0);
+
+    const gl = b.gl;
+
+    // Two bars with a gap: stroke, counter, stroke. The edges ramp over 8
+    // texels, which is what gives the rim band something to sit in — a hard
+    // mask has no gradient, so mRing is zero everywhere and the carve comes out
+    // rimless. That is worth knowing about the real rasterizer too, and is why
+    // TextMask blurs.
+    const MW = 256, MH = 64;
+    const BAR1 = [40, 100], GAP = [100, 156], BAR2 = [156, 216];
+    const px = new Uint8Array(MW * MH * 4);
+    const ramp = (x, edge) => Math.max(0, Math.min(1, (x - edge) / 8));
+    for (let y = 0; y < MH; y++) {
+      for (let x = 0; x < MW; x++) {
+        const in1 = Math.min(ramp(x, BAR1[0]), 1 - ramp(x, BAR1[1] - 8));
+        const in2 = Math.min(ramp(x, BAR2[0]), 1 - ramp(x, BAR2[1] - 8));
+        const v = Math.round(255 * Math.max(0, Math.max(in1, in2)));
+        const i = (y * MW + x) * 4;
+        px[i] = v; px[i + 1] = v; px[i + 2] = v; px[i + 3] = 255;
+      }
+    }
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, MW, MH, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
+    // Up the dry beach, clear of the swash for the same reason the fill-in
+    // probe above is.
+    const WZ = 2.2;
+    const DEPTH = 0.5;
+    const stamp = {
+      texture: tex,
+      center: [0, WZ],
+      half: [1.0, 1.0 / (MW / MH)], // aspect-matched, or the type skews
+      pressure: 1.0,
+      depth: DEPTH,
+      rim: 0.45,
+      fillDelay: 6,
+    };
+
+    // World X of each feature's centre, from its pixel column in the mask.
+    const worldX = (col) => (col / MW - 0.5) * 2 * stamp.half[0];
+    const xStroke1 = worldX((BAR1[0] + BAR1[1]) / 2);
+    const xCounter = worldX((GAP[0] + GAP[1]) / 2);
+    const xStroke2 = worldX((BAR2[0] + BAR2[1]) / 2);
+    // Outside the rect entirely — the mask must be local to where it is placed.
+    const xOutside = stamp.half[0] * 1.6;
+
+    const fb = gl.createFramebuffer();
+    const probe = (x, z) => {
+      const uv = b.field.worldToField(x, z);
+      if (!uv) return null;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.field.texture, 0);
+      const out = new Float32Array(4);
+      gl.readPixels(
+        Math.round(uv[0] * b.field.width), Math.round(uv[1] * b.field.height),
+        1, 1, gl.RGBA, gl.FLOAT, out,
+      );
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return out[0];
+    };
+
+    const carve = (steps, s) => {
+      for (let i = 0; i < steps; i++) b.field.step(0.016, null, b.waves, 0, s);
+    };
+
+    b.field.reset();
+    b.field.step(0.016, null, b.waves, 0);
+    carve(40, stamp);
+
+    const shape = {
+      stroke1: probe(xStroke1, WZ),
+      counter: probe(xCounter, WZ),
+      stroke2: probe(xStroke2, WZ),
+      outside: probe(xOutside, WZ),
+    };
+
+    // The rim: highest point across the row through the carve. Pressed sand
+    // pushes up at the edge (§6.4), so a carve with no positive anywhere in it
+    // is a dent in plastic.
+    let rim = 0;
+    for (let c = 0; c < 40; c++) {
+      const x = -stamp.half[0] + (c / 39) * 2 * stamp.half[0];
+      const h = probe(x, WZ);
+      if (h !== null && h > rim) rim = h;
+    }
+
+    // ── World anchoring ──────────────────────────────────────────────────
+    // The carve is placed in world space, so travelling the patch under it must
+    // leave it where it was. Lifted first: with the mask still pressing it
+    // would simply re-carve at the new position and a uv-anchored bug would
+    // pass. The shift is a whole number of texels by construction (setOrigin
+    // snaps), so the resample is exact.
+    const beforeShift = probe(xStroke1, WZ);
+    b.field.setOrigin(0, 0.4);
+    b.field.step(0.016, null, b.waves, 0, null);
+    const afterShift = probe(xStroke1, WZ);
+    b.field.setOrigin(0, 0);
+    b.field.step(0.016, null, b.waves, 0, null);
+
+    // ── Fill-delay scoping ───────────────────────────────────────────────
+    // A brush with a long delay must hold ITS OWN mark, not stop the whole
+    // field eroding. This was a real defect: the delay was one uniform, and
+    // `ramp` gates transport for every texel, so any long-delay brush froze the
+    // entire beach for the steps it was active.
+    const P = b.field.worldToField(-0.6, WZ);
+    const Q = b.field.worldToField(0.9, WZ); // far from P, so coverage there is 0
+    const ordinary = { kind: "press", a: P, b: P, radius: 0.024, depth: 0.34, rim: 0.42, pressure: 1.0 };
+    const patient = { kind: "press", a: Q, b: Q, radius: 0.024, depth: 0.34, rim: 0.42, pressure: 1.0, fillDelay: 20 };
+
+    const erodeAt = (companion) => {
+      b.field.reset();
+      b.field.step(0.016, null, b.waves, 0);
+      for (let i = 0; i < 30; i++) b.field.step(0.016, ordinary, b.waves, 0);
+      const pressed = probe(-0.6, WZ);
+      // 3 seconds during which `companion` is the active brush somewhere else.
+      for (let i = 0; i < Math.round(3 / 0.016); i++) b.field.step(0.016, companion, b.waves, 0);
+      return { pressed, after: probe(-0.6, WZ) };
+    };
+    const alone = erodeAt(null);
+    const alongside = erodeAt(patient);
+
+    gl.deleteFramebuffer(fb);
+    gl.deleteTexture(tex);
+    return {
+      depth: DEPTH, shape, rim,
+      beforeShift, afterShift,
+      alone, alongside,
+    };
+  });
+
+  const g = (v) => (v >= 0 ? " " : "") + v.toFixed(3);
+  console.log(`  stroke ${g(mask.shape.stroke1)}   counter ${g(mask.shape.counter)}   ` +
+              `stroke ${g(mask.shape.stroke2)}   outside ${g(mask.shape.outside)}\n`);
+
+  check("the mask carves its strokes to depth", () => {
+    // The stamp converges to -depth, exactly as the segment brush does.
+    for (const [name, h] of [["first", mask.shape.stroke1], ["second", mask.shape.stroke2]]) {
+      assert(h < -mask.depth * 0.7, `${name} stroke only reached ${h.toFixed(3)} of -${mask.depth}`);
+    }
+    return `both strokes at ~${mask.shape.stroke1.toFixed(3)} against a target of -${mask.depth}`;
+  });
+
+  check("the counter is not carved", () => {
+    // The whole point of a mask over a swept segment. A path-based stamp
+    // joining the two strokes would fill this in, and the letters would come
+    // out as a trench.
+    const stroke = Math.abs(mask.shape.stroke1);
+    const counter = Math.abs(mask.shape.counter);
+    assert(counter < stroke * 0.25, `counter at ${mask.shape.counter.toFixed(3)} against stroke ${mask.shape.stroke1.toFixed(3)}`);
+    return `counter ${mask.shape.counter.toFixed(3)} vs stroke ${mask.shape.stroke1.toFixed(3)}`;
+  });
+
+  check("the carve stays inside its own rect", () => {
+    // CLAMP_TO_EDGE would otherwise smear the mask's border row along the
+    // whole beach, which is what the rect test in maskAt() exists to stop.
+    assert(Math.abs(mask.shape.outside) < 0.01, `sand outside the rect moved to ${mask.shape.outside.toFixed(3)}`);
+    return `${mask.shape.outside.toFixed(4)} outside the rect`;
+  });
+
+  check("the carve has a rim", () => {
+    // §6.4: pressed sand pushes up at the edge. Without it the title looks
+    // stamped into clay. The rim comes from the mask's soft edge, so this is
+    // also the check that the softness survives into the field.
+    assert(mask.rim > 0.02, `highest point across the carve is only ${mask.rim.toFixed(4)}`);
+    return `rim reaches +${mask.rim.toFixed(3)}`;
+  });
+
+  check("the carve is anchored in the world, not in the patch", () => {
+    // The clipmap travels with the camera. A mask placed in uv would slide
+    // across the beach as you scrolled and the title would swim.
+    const drift = Math.abs(mask.afterShift - mask.beforeShift);
+    assert(drift < Math.abs(mask.beforeShift) * 0.2,
+      `moving the patch changed the carve at a fixed world point from ${mask.beforeShift.toFixed(3)} to ${mask.afterShift.toFixed(3)}`);
+    return `${mask.beforeShift.toFixed(3)} → ${mask.afterShift.toFixed(3)} across a 0.4 patch move`;
+  });
+
+  check("a long fill delay holds its own mark, not the whole field", () => {
+    // Regression. With the delay as a single uniform, a patient brush anywhere
+    // on the beach stopped erosion everywhere for the steps it was active.
+    const soloLeft = Math.abs(mask.alone.after) / Math.abs(mask.alone.pressed);
+    const withLeft = Math.abs(mask.alongside.after) / Math.abs(mask.alongside.pressed);
+    assert(withLeft < soloLeft + 0.1,
+      `a distant 20s-delay brush left ${(withLeft * 100).toFixed(0)}% of an ordinary mark against ${(soloLeft * 100).toFixed(0)}% alone`);
+    return `${(soloLeft * 100).toFixed(0)}% alone vs ${(withLeft * 100).toFixed(0)}% alongside a 20s-delay brush`;
+  });
+
   console.log(`\n${failures ? "FAIL" : "PASS"} — ${ran - failures}/${ran} checks\n`);
   process.exit(failures ? 1 : 0);
 } finally {

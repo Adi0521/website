@@ -10,6 +10,7 @@
  */
 
 import type { RouteDef } from "../router/router";
+import { MILESTONES } from "../about/milestones";
 import { PROJECTS, bySlug } from "./projects";
 
 const esc = (s: string): string =>
@@ -27,20 +28,38 @@ const home: RouteDef = {
   description: () =>
     "A beach at low sun, where the sand is a live surface that remembers what touched it.",
   render: () => `
+    <!-- data-carve is read by src/about/mount.ts, which rasterizes exactly this
+         string. The <h1> stays visible and the sand carries an impression of
+         it, so the two must agree — same face, same weight, same tracking. -->
     <section class="hero">
-      <h1>Adi</h1>
+      <h1 data-carve>Adi</h1>
       <p class="lede">
         A beach at low sun. The sand is live — press into it and it remembers,
         until the wind fills it back in or a wave takes it.
       </p>
-      <p class="util">Placeholder. Hero carve, timeline and slideshow are Phase 4 and 5.</p>
     </section>
 
-    <!-- Phase 2's exit condition: scrolling an empty beach should be pleasant
-         on its own. Until the About sections exist, this spacer is what drives
-         the camera. It only exists on this route — focus pages do not scroll
-         the scene. -->
-    <div id="track" aria-hidden="true"></div>
+    <!-- §8.2's timeline, as content. The footprint trail in the sand and the
+         hover-to-press-deeper behaviour land together with the rest of the
+         hover work — see src/about/milestones.ts.
+
+         Plain list items, NOT buttons. They were buttons while the sand
+         responded to focus; with nothing to activate, a <button> announces an
+         action to a screen reader that does not exist. §12 asks for real text
+         and a real reading order, and that is all this needs to be until there
+         is something to press. -->
+    <section id="timeline" aria-labelledby="timeline-h">
+      <h2 id="timeline-h">Timeline</h2>
+      <ol class="trail">
+        ${MILESTONES.map(
+          (m) => `
+          <li class="milestone">
+            <span class="util">${esc(m.label)}</span>
+            <span class="detail">${esc(m.detail)}</span>
+          </li>`,
+        ).join("")}
+      </ol>
+    </section>
 
     <section class="plate">
       <h2>Work</h2>

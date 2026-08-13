@@ -1,3 +1,4 @@
+import { AboutStations } from "./about/mount";
 import { Beach } from "./beach";
 import { GLUnsupported } from "./gl/context";
 import { ShaderError } from "./gl/program";
@@ -6,17 +7,16 @@ import { Router, type RouteMatch } from "./router/router";
 import { ROUTES, STATIC_PATHS, notFound } from "./routes/views";
 
 /**
- * PHASE 3 — two modes. Routing is in; the focus pull itself is not.
+ * PHASE 4 — text in sand.
  *
- * What works today: real routes, real URLs, back and forward, deep links, and
- * one WebGL context across all of it. Entering a focus route stops the loop
- * (§9) and leaving it resumes with bounded catch-up, so the sand comes back
- * older rather than frozen (§10).
+ * Phase 3 is behind us: real routes, real URLs, back and forward, deep links,
+ * one WebGL context across all of it, and the focus pull as defocus plus a
+ * camera push (§10).
  *
- * What is still missing from §10: the transition. The scene currently cuts
- * rather than pulling focus — no camera push, no depth-of-field ramp, no
- * desaturation, and no render-once-to-a-texture. `stop()` and `start()` are
- * the seam that goes on.
+ * What Phase 4 adds here is `AboutStations`, which is the first thing to write
+ * into the sand that is not a pointer — the hero carve (§8.1) and the
+ * footprint timeline (§8.2). It mounts and unmounts with About's DOM, because
+ * a focus page does not have a hero to carve.
  */
 
 boot();
@@ -27,6 +27,7 @@ function boot(): void {
 
   let beach: Beach | null = null;
   let scroll: ScrollCamera | null = null;
+  let about: AboutStations | null = null;
 
   const canvas = document.getElementById("scene") as HTMLCanvasElement | null;
   if (canvas) {
@@ -35,7 +36,15 @@ function boot(): void {
       // PRD §12: reduced motion means no camera motion either, so the scroll
       // driver is not wired at all rather than wired and suppressed.
       scroll = beach.reducedMotion ? null : new ScrollCamera(beach);
-      if (scroll) beach.onFrame = (dt) => scroll!.update(dt);
+      // §12 again: reduced motion gets a static beach, and a title pressing
+      // itself into the sand on load is motion. The DOM <h1> is the title in
+      // that mode, which is what it already is in the no-WebGL fallback.
+      about = beach.reducedMotion ? null : new AboutStations(beach);
+      const stations = about;
+      beach.onFrame = (dt) => {
+        scroll?.update(dt);
+        stations?.update(dt);
+      };
       console.info(
         `[beach] ${beach.tier.name} — field ${beach.field.width}×${beach.field.height}`,
       );
@@ -54,6 +63,10 @@ function boot(): void {
       // Anchors the beach where it is when entering a focus page, and swaps
       // the scroll mapping from About's normalised journey to a fixed rate.
       scroll?.setMode(to.route.mode);
+      // The router has already swapped #app's contents, so the milestone
+      // buttons this binds to are the ones now in the document.
+      if (to.route.mode === "full") about?.mount(container);
+      else about?.unmount();
       if (!beach) return;
       // §12: reduced motion gets About in focus-mode styling too — static,
       // desaturated, no camera motion — rather than a slower version of the
@@ -74,7 +87,8 @@ function boot(): void {
   // __staticPaths is read by tools/prerender.mjs so the route list has a
   // single source: adding a project cannot leave its page unprerendered.
   Object.assign(window, {
-    __beach: beach, __scroll: scroll, __router: router, __staticPaths: STATIC_PATHS,
+    __beach: beach, __scroll: scroll, __about: about,
+    __router: router, __staticPaths: STATIC_PATHS,
   });
 }
 
