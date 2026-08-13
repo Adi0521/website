@@ -39,7 +39,22 @@ export interface BrushParams {
   rim: number;
 }
 
-/** The baked static layer: ripples and dunes, regenerated only on resize. */
+/**
+ * The baked static layer: ripples and dunes, regenerated only on resize.
+ *
+ * DO NOT chase "natural" ripple proportions here. Finer, deeper crests
+ * (ripScale 110, ripAmp 0.15) measure closer to real sand — a height-to-
+ * wavelength ratio of 0.072 against the shipped 0.034 — and look markedly
+ * worse: rows of regular sinusoidal sand.
+ *
+ * The reason is that ripScale is coupled to the noise. What stops these
+ * reading as a grating is the fbm in bake.frag warping and clumping the
+ * crests, and that fbm runs at FIXED frequencies. Raise the carrier without
+ * raising them and the wander becomes relatively coarser than the ripples it
+ * is supposed to break up, so each crest comes out clean and evenly spaced.
+ * Finer ripples would mean scaling `fbm(q*3.0)`, `fbm(q*7.4)` and the
+ * clumping term with it — not turning this one dial.
+ */
 export interface BakeParams {
   ripAmp: number;
   ripScale: number;

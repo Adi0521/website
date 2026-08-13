@@ -396,6 +396,50 @@ try {
     "off-centre picks land in the clipmap, not past its edge",
   );
 
+  // A focus page must not drag the beach back to the start of the journey.
+  // Normalising scroll by the page's own range did exactly that: a short page
+  // has a scroll range near zero, so progress read as 0 and the camera slid
+  // all the way back down the beach behind the text.
+  const anchor = await page.evaluate(async () => {
+    const b = window.__beach, r = window.__router;
+    const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+    const settle = async (fn) => { for (let i = 0; i < 80; i++) { if (fn()) return; await wait(100); } };
+
+    r.navigate("/");
+    b.setFocus(0);
+    await settle(() => b.focusAmount === 0);
+    scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
+    await wait(1800);
+    const onAbout = b.camera.target[2];
+
+    r.navigate("/resume");
+    await settle(() => b.focusAmount === 1);
+    await wait(900);
+    const onFocus = b.camera.target[2];
+
+    // And scrolling the focus page itself should move it gently, if at all.
+    scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
+    await wait(1200);
+    const afterFocusScroll = b.camera.target[2];
+    const focusRange = document.documentElement.scrollHeight - innerHeight;
+
+    r.navigate("/");
+    await settle(() => b.focusAmount === 0);
+    return { onAbout, onFocus, afterFocusScroll, focusRange };
+  });
+
+  check(
+    "entering a focus page leaves the beach where it was",
+    Math.abs(anchor.onFocus - anchor.onAbout) < 0.25,
+    `camera z ${anchor.onAbout.toFixed(2)} on About → ${anchor.onFocus.toFixed(2)} on /resume`,
+  );
+  check(
+    "scrolling a focus page moves the camera gently",
+    Math.abs(anchor.afterFocusScroll - anchor.onFocus) < 1.0,
+    `z ${anchor.onFocus.toFixed(2)} → ${anchor.afterFocusScroll.toFixed(2)} ` +
+      `over ${anchor.focusRange}px of page`,
+  );
+
   // ── Focus pull (PRD §10) ────────────────────────────────────────────────
   const pull = await page.evaluate(async () => {
     const b = window.__beach;
