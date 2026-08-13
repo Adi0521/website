@@ -3,6 +3,13 @@ precision highp float;
 in vec2 vUv;
 out vec4 outC;
 uniform sampler2D uPrev, uStatic;
+// text-to-mask (PRD §8.1). a rasterized word is not a swept segment, so it
+// arrives as its own footprint source rather than as a sixth brush kind — the
+// set in §6.4 stays closed. placed in WORLD space, because the patch travels
+// and a rect held in uv would let the title swim across the beach.
+uniform sampler2D uMask;
+uniform vec4  uMaskRect;   // world centre xz, world half-extent xz
+uniform float uMaskPress, uMaskDepth, uMaskRim, uMaskDelay;
 uniform vec2  uTexel, uA, uB;
 // clipmap: the interactive patch travels with the camera. uOrigin is its world
 // centre; uShift is how far the patch moved since the last step, in uv, so this
@@ -26,6 +33,15 @@ float xfer(float hC, float hN, float thr){
   float dh = hC - hN;
   return -sign(dh)*max(abs(dh) - thr, 0.0);
 }
+// coverage of the text mask at a world position, 0 outside its rect. the rect
+// test is what keeps the title local: without it CLAMP_TO_EDGE would smear the
+// mask's border row along the entire beach.
+float maskAt(vec2 wxz){
+  if(uMaskPress <= 0.0) return 0.0;
+  vec2 m = (wxz - uMaskRect.xy)/(2.0*uMaskRect.zw) + 0.5;
+  if(any(lessThan(m, vec2(0.0))) || any(greaterThan(m, vec2(1.0)))) return 0.0;
+  return texture(uMask, m).r;
+}
 void main(){
   // where this texel's world position sat in the previous field. the shift is
   // always a whole number of texels — the cpu snaps the origin to the texel
@@ -39,6 +55,10 @@ void main(){
   vec4 c = texture(uPrev, uv0);
   float h0 = c.r, dst = c.g, wet = c.b, age = c.a;
 
+  // this texel's world position. hoisted above the stamp because the mask is
+  // placed in world space; the wave section below reuses it.
+  vec2 wxz  = uOrigin + vec2((vUv.x-0.5)*2.0*uDX, (vUv.y-0.5)*2.0*uDZ);
+
   // brush footprint first: freshly pressed sand must not slump the same frame
   vec2 p = vUv*vec2(uAspect,1.0);
   vec2 a = uA*vec2(uAspect,1.0);
@@ -46,11 +66,33 @@ void main(){
   float d = sdSeg(p,a,b)/max(uRadius,1e-4);
   float core = exp(-d*d*2.2);
   float ring = exp(-pow((d-1.18)*3.0, 2.0));
-  float stampAmt = uPressure*(core + ring);
+
+  // the mask's own core and rim, thresholded out of ONE sample. the mask was
+  // blurred when it was rasterized, so its edge gradient is already the
+  // falloff a rim needs — reading two bands out of it costs no extra taps.
+  // the rim band sits BELOW the core band, i.e. just outside the glyph
+  // outline, because pressed sand pushes up at the edge and not inside the
+  // letter (§6.4). a hard-edged mask instead carves a cliff, and slumping
+  // tears it straight back down into a ridge of noise.
+  float mv    = maskAt(wxz);
+  float mCore = smoothstep(0.55, 0.88, mv);
+  float mRing = smoothstep(0.06, 0.34, mv)*(1.0 - smoothstep(0.34, 0.62, mv));
+
+  float stampAmt = uPressure*(core + ring) + uMaskPress*(mCore + mRing);
 
   // age resets under the brush, so the mark holds briefly before it fills
   age = min((age + uDt)*(1.0 - clamp(stampAmt*3.0, 0.0, 1.0)), 30.0);
-  float ramp = uDelay < 0.02 ? 1.0 : smoothstep(uDelay*0.55, uDelay*1.45, age);
+
+  // per-brush fill delay, resolved PER TEXEL rather than globally. §6.2 wants
+  // timeline footprints to outlast an ordinary mark, and the hero title to
+  // outlast both — but the delay gates transport for a texel, so a single
+  // global value would make the longest-lived mark on screen set the erosion
+  // rate for the whole beach. Under the carve the mask's delay wins; the
+  // moment the carve lifts, mCore and mRing go to zero and the sand there
+  // reverts to the ordinary rate, which is precisely §8.1's "scrolling away
+  // accelerates decay".
+  float delay = mix(uDelay, uMaskDelay, clamp(mCore + mRing, 0.0, 1.0));
+  float ramp = delay < 0.02 ? 1.0 : smoothstep(delay*0.55, delay*1.45, age);
 
   float hL = texture(uPrev, uv0 - vec2(uTexel.x,0.0)).r;
   float hR = texture(uPrev, uv0 + vec2(uTexel.x,0.0)).r;
@@ -83,7 +125,6 @@ void main(){
 
   // ---- waves. water in reach smooths the sand flat and leaves it wet, which
   // ---- is the beach's own reset: no UI, no explanation needed.
-  vec2 wxz  = uOrigin + vec2((vUv.x-0.5)*2.0*uDX, (vUv.y-0.5)*2.0*uDZ);
   // the baked layer is locked to the world, not to the patch: it wraps with
   // MIRRORED_REPEAT so the beach keeps going, and the ripples stay put on the
   // ground instead of sliding along with the camera.
@@ -102,6 +143,16 @@ void main(){
   h = mix(h, min(h, -uDepth*core),      k*core);
   h = mix(h, max(h,  uDepth*uRim*ring), k*ring*(1.0-core));
   dst = max(dst, min(1.0, uPressure*(core + ring*0.7)));
+
+  // the mask stamps in the same pass, with its own depth. sequential rather
+  // than combined because each source converges to its OWN target — a word
+  // carved deep and a pointer hovering lightly over it must not average into
+  // one depth. both are target-based mixes, so applying them in turn is still
+  // idempotent under a held press.
+  float km = clamp(uMaskPress*uDt*30.0, 0.0, 1.0);
+  h = mix(h, min(h, -uMaskDepth*mCore),            km*mCore);
+  h = mix(h, max(h,  uMaskDepth*uMaskRim*mRing),   km*mRing*(1.0-mCore));
+  dst = max(dst, min(1.0, uMaskPress*(mCore + mRing*0.7)));
 
   outC = vec4(clamp(h,-1.0,1.0), clamp(dst,0.0,1.0), clamp(wet,0.0,1.0), age);
 }

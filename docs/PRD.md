@@ -111,11 +111,11 @@ Same palette compressed. **Built as specified and rejected:** desaturating towar
 
 ### Typography
 
-- **Display: a wide/expanded grotesque.** Wide type is horizon-shaped. *Candidate: Archivo Expanded.*
-- **Body: a neutral grotesque.** *Candidate: Inter.*
-- **Utility: monospace.** *Candidate: JetBrains Mono.*
+- **Display: Mattone** (Collletttivo, OFL). Wide type is horizon-shaped. Bold only — nothing currently requests weight 400.
+- **Body: Hanken Grotesk** (OFL), variable, `wght` 100–900.
+- **Utility: Sligoil Micro** (Velvetyne, OFL).
 
-**Still unlocked. Blocks Phase 3.**
+**Resolved.** Self-hosted and subsetted to Latin, 122 kB across four woff2 files, no CDN round trip. Arrows and geometric marks exist ONLY in Sligoil — Mattone and Hanken carry neither `→` nor `●` — so anything using them has to be in the mono face or it falls back mid-sentence.
 
 ---
 
@@ -376,12 +376,17 @@ Still to build: one-agent-at-a-time enforcement, freeze-and-stop in focus mode.
 **Phase 1 — Prove the primitive. ✅ Done.** Sand field, ping-pong sim, slumping and infill, `press` brush with rim, wave system. The gate is passed: pressing into the sand feels right.
 
 **Phase 2 — The beach. ◐ Both gaps closed, exit condition unjudged.** Done: raymarched terrain, low sun, ripples, sky, sea, waves, wetness, and the engine ported out of the prototype into `src/gl` and `src/sand`.
-- **Scroll-driven camera.** Built. Scrolling down retreats up the dry beach, z 2.0 → 7.0, with ~10° of azimuth swept across the travel. `endZ` is bounded by the ramp rather than by taste: `beachY` clamps at 0.9, so above ~7.7 the eye is over flat ground and the near foreground becomes a shelf.
+- **Scroll-driven camera.** Built. Scrolling down retreats up the dry beach, z 2.0 → 7.6, with ~10° of azimuth swept across the travel. `endZ` is bounded by the ramp rather than by taste: `beachY` clamps at 0.9, so above ~7.7 the eye is over flat ground and the near foreground becomes a shelf.
 - **Camera-following clipmap.** Built. The patch follows the camera's look-at point, snapped to whole texels — unsnapped, bilinear resampling blurs every mark a little more each frame until a footprint dissolves from the camera merely moving past it. The baked layer is locked to the world and wraps, so ripples stay put on the ground while the interactive layer travels.
 - **Scroll mapping is per-mode.** About normalises: its designed track length maps to the whole journey. Focus pages use a fixed rate — world units per screenful — because normalising divides by the page's own scroll range, so the shorter the page the more violently a flick of the wheel drags the camera. They also anchor to wherever the beach already was on entry, rather than snapping back to the start of the journey behind the text.
 - **Still open: the exit condition itself** — whether scrolling an empty beach is pleasant on its own. Not answerable in headless, for the appearance reason in §14.
 
-**Phase 3 — Two modes.** Routing, nav, focus pull, freeze-and-stop, focus pages with placeholder text. **Deliberately before content** — retrofitting a mode system after five projects exist is far more expensive than building it into an empty shell.
+**Phase 3 — Two modes. ✅ Done.** Built before content, as intended — retrofitting a mode system after five projects exist is far more expensive than building it into an empty shell.
+- **Routing.** Hand-written History API router, ~180 lines. Real URLs, back and forward, deep links, unknown slugs to a 404. §12's focus management: focus moves to the new `<h1>` and a live region announces it. Verified by pressing a mark into the sand, navigating the real routes, and looking for it afterwards, with a full page load as the control (§14.6).
+- **Prerendering.** Not in the original plan. A client-rendered SPA serves crawlers an empty shell — the same objection §9 raises against an iframed PDF, applied to every page. Every route is snapshotted to a real HTML file at build time in the headless Chrome already used for verification, so no framework was needed.
+- **Nav** (§4), with the typography now real (§5).
+- **Focus pull** (§10), reduced to defocus plus a camera push — see §5 and §10 for the two parts of it that were built as specified and rejected.
+- **Deferred:** §4's "the nav version moves the camera to the right part of the scene first" needs stations in the scene to move *to*. Phase 4 and 5 work.
 
 **Phase 4 — Text in sand.** Text-to-mask pipeline, hero carve and erode, footprint timeline. Per-brush fill delay (§6.2).
 
@@ -414,7 +419,6 @@ Three lessons worth keeping. **Brace-balance and uniform-name checks are not ver
 
 ## 15. Open questions
 
-1. **Display typeface.** Blocks Phase 3. Now the only hard blocker on the critical path.
 2. **Low-end frame time.** (§11) Calibrates the Standard tier. Not blocking — the tiers can be tuned late.
 4. **Nav items** — About / Work / Resume / Contact, or does Work fold into About?
 5. **Projects 4 and 5.** May test whether the closed brush set holds.
@@ -423,7 +427,7 @@ Three lessons worth keeping. **Brace-balance and uniform-name checks are not ver
 8. **Car path seeded per visit or fixed?**
 9. **Mobile focus-pull** — worth it on a phone, or navigate conventionally?
 
-*Resolved since v0.3: props fork → `gl_FragDepth` (§6.3); dev-hardware frame time (§11). Resolved since v0.2: erosion feel (§6.2 — it is a delay plus slump rate, not a single decay constant); wave behaviour (§7).*
+*Resolved since v0.3.1: display typeface (§5). Resolved since v0.3: props fork → `gl_FragDepth` (§6.3); dev-hardware frame time (§11). Resolved since v0.2: erosion feel (§6.2 — it is a delay plus slump rate, not a single decay constant); wave behaviour (§7).*
 
 ---
 

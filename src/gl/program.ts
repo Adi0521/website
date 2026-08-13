@@ -60,6 +60,11 @@ export class Program {
     if (l) this.gl.uniform3f(l, x, y, z);
   }
 
+  f4(name: string, x: number, y: number, z: number, w: number): void {
+    const l = this.at(name);
+    if (l) this.gl.uniform4f(l, x, y, z, w);
+  }
+
   i(name: string, v: number): void {
     const l = this.at(name);
     if (l) this.gl.uniform1i(l, v);

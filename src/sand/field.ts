@@ -12,6 +12,7 @@
  */
 
 import type { Brush } from "../agents/types";
+import type { MaskStamp } from "./mask";
 import type { Tier } from "../gl/quality";
 import type { WaveScheduler } from "../waves/scheduler";
 import { applyWaveUniforms } from "../waves/uniforms";
@@ -179,8 +180,21 @@ export class SandField {
    * twice with it. Multiple concurrent brushes need a separate stamp pass;
    * that is Phase 5 work, and PRD §8.3 keeps only one agent active at a time
    * precisely so it is not needed before then.
+   *
+   * The mask is the exception, and it is an exception on purpose rather than
+   * the thin end of that wedge: it is a second footprint SOURCE inside the one
+   * stamp, not a second stamp. Erosion still runs exactly once. It has to be
+   * separate from the brush because the hero carve and the pointer are live at
+   * the same time — §8.1 has the title sitting in the sand while you press
+   * around it — and one-brush-per-step would otherwise make them alternate.
    */
-  step(dt: number, brush: Brush | null, waves: WaveScheduler, time: number): void {
+  step(
+    dt: number,
+    brush: Brush | null,
+    waves: WaveScheduler,
+    time: number,
+    mask: MaskStamp | null = null,
+  ): void {
     if (!this.front || !this.back) return;
     const gl = this.gl;
     const { transport, brush: defaults, water, look } = this.config;
@@ -224,6 +238,26 @@ export class SandField {
     // per pass, so timeline footprints can already outlast an ordinary mark
     // without the global-delay problem PRD §6.2 flags.
     this.simProg.f("uDelay", active?.fillDelay ?? transport.delay);
+
+    // The mask sampler is bound on EVERY step, even with nothing to carve.
+    // Left unset it defaults to unit 0, which holds the previous field — and
+    // while that reads harmlessly today, it is a sampler quietly aimed at a
+    // half-float target that some drivers refuse to filter. Binding the static
+    // layer as the inert stand-in costs one bind and keeps the unit honest.
+    this.simProg.tex("uMask", 2, mask?.texture ?? this.staticLayer!.tex);
+    this.simProg.f("uMaskPress", mask ? mask.pressure : 0);
+    this.simProg.f("uMaskDepth", mask ? mask.depth : 0);
+    this.simProg.f("uMaskRim", mask ? mask.rim : 0);
+    this.simProg.f("uMaskDelay", mask?.fillDelay ?? transport.delay);
+    this.simProg.f4(
+      "uMaskRect",
+      mask ? mask.center[0] : 0,
+      mask ? mask.center[1] : 0,
+      // Never zero: the shader divides by the half-extent, and a degenerate
+      // rect would put every texel inside the mask at once.
+      mask ? Math.max(mask.half[0], 1e-4) : 1,
+      mask ? Math.max(mask.half[1], 1e-4) : 1,
+    );
 
     this.simProg.f("uDX", this.domainX);
     this.simProg.f("uDZ", DOMAIN);
