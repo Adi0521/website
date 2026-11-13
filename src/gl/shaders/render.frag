@@ -11,7 +11,6 @@ uniform float uSunEl, uSunAz, uDX, uDZ, uHtw, uFog, uSteps;
 uniform float uCursorOn, uCursorR, uExposure, uFoam, uSat;
 uniform int   uView;
 #include "common/wave.glsl";
-#include "common/text.glsl";
 
 const vec3 SAND_LIT    = vec3(0.929,0.863,0.722);
 const vec3 SAND_SHADOW = vec3(0.361,0.478,0.600);
@@ -37,6 +36,9 @@ float fbm2(vec2 p){
   for(int i=0;i<3;i++){ s += a*vn2(p); p = p*2.07 + 7.1; a *= 0.5; }
   return s;
 }
+
+// after the noise helpers: the name's crumble and texture are built from them
+#include "common/text.glsl";
 
 // the interactive patch travels with the camera, so its uv is relative to
 // uOrigin. the baked layer does not travel — it is locked to the world and
@@ -127,27 +129,39 @@ void main(){
 
   if(gotTex){
     // ------------------------------------------------- the name in sand --
-    // Packed sand: the same albedo, grain and sky-fill shadow as the beach, so
-    // the structure BELONGS to the scene rather than sitting on top of it.
-    // §5's whole argument is that everything shares one warm sun and one blue
-    // sky-fill; a title with its own material would step outside that and read
-    // as a decal however well it were modelled.
+    // Rocky sand: the beach's own albedo, grain and sky-fill, so the structure
+    // BELONGS to the scene (§5's one warm sun, one blue sky-fill) — with a
+    // coarse, weathered surface on top. The texture is shading only (see
+    // textRelief); the silhouette is the crumbled mask and nothing else.
     vec3 p = ro + rd*tTex;
-    vec3 N = nTex;
-    float gr = hash21(floor(p.xz*430.0 + vec2(p.y*430.0)));
-    vec3 albedo = SAND_LIT*(0.90 + 0.16*gr);
+    vec3 N = textBump(p, nTex, tTex);
+    vec3 lp = textLocal(p);
+    vec3 nl = vec3(dot(nTex,uTextR), dot(nTex,uTextU), dot(nTex,uTextN));
+    float pit = textRelief(lp, p.y, nl).y;
+    float n1 = vn2(lp.xy*9.0 + lp.z*7.0);
+    float gr = hash21(floor(lp.xy*430.0) + floor(lp.z*430.0));
+    // Mottled darker and warmer than the loose sand on the beach, the way
+    // packed, damp sand standing in the surf is; pits hold shadow.
+    vec3 albedo = SAND_LIT*mix(vec3(0.64,0.60,0.55), vec3(0.53,0.49,0.44), n1);
+    albedo *= (0.88 + 0.18*gr)*(1.0 - pit*0.30);
+    // Darker again, and glossy, wherever a wave is covering it right now.
+    float awash = step(p.y, waterY(p.xz) + 0.012);
+    albedo *= mix(1.0, 0.70, awash);
+    float spec = 0.04;
+
     float ndl = max(dot(N,L), 0.0);
     float sh  = sunShadow(p.xz, p.y, L);
     vec3 direct  = SUN_RIM*ndl*sh*uExposure/max(sin(uSunEl), 0.10);
-    vec3 ambient = SAND_SHADOW*(0.40 + 0.60*max(N.y,0.0))*uSky;
+    vec3 ambient = SAND_SHADOW*(0.40 + 0.60*max(N.y,0.0))*uSky*(1.0 - pit*0.35);
     // Light coming back up off the beach, which is bright and directly below.
     vec3 bounce  = SAND_LIT*uSky*0.30*(0.35 + 0.65*max(-N.y,0.0));
     col = albedo*(direct + ambient + bounce);
     vec3 Vv = normalize(ro - p);
     float nh = max(dot(N, normalize(L + Vv)), 0.0);
-    col += SUN_RIM*pow(nh, 36.0)*0.045*sh;
-    float gs = hash21(floor(p.xz*880.0 + vec2(p.y*880.0)));
-    col += SUN_RIM*pow(gs,22.0)*pow(nh,7.0)*sh*uSparkle*0.7/(1.0 + tTex*1.6);
+    col += SUN_RIM*pow(nh, 36.0)*spec*sh;
+    col += SUN_RIM*pow(nh, 140.0)*awash*0.45*sh;          // wet sheen
+    float gs = hash21(floor(lp.xy*880.0) + floor(lp.z*880.0));
+    col += SUN_RIM*pow(gs,22.0)*pow(nh,7.0)*sh*uSparkle*0.6/(1.0 + tTex*1.6);
     if(uView == 2) col = N*0.5 + 0.5;
     if(uView == 0) col = mix(col, skyCol(rd, L), 1.0 - exp(-tTex*uFog));
   } else if(tHit < 0.0){
@@ -175,15 +189,22 @@ void main(){
       float fres = pow(1.0 - max(dot(WN,V), 0.0), 4.0);
       col = mix(body, skyCol(reflect(-V, WN), L), fres*0.38);
 
+      // the name's shadow on the water: dims the body and kills the glint
+      float tsh = textShadow(p, L);
+      col *= 1.0 - tsh*0.38;
+
       vec3 Hw = normalize(L + V);
-      col += SUN_RIM*pow(max(dot(WN,Hw), 0.0), 200.0)*1.5;
+      col += SUN_RIM*pow(max(dot(WN,Hw), 0.0), 200.0)*1.5*(1.0 - tsh);
 
       // foam: a thin sheet where the sheet runs out, plus breakup on steep faces
       float slope = length(vec2(wr-wl, wu-wd))/(2.0*ex);
       float edge  = 1.0 - smoothstep(0.0, 0.024, depth);
       float crest = smoothstep(0.42, 1.05, slope);
       float fn    = fbm2(p.xz*9.0 + vec2(0.0, uTime*0.55));
-      float foam  = clamp((edge*1.2 + crest*0.85)*(0.40 + 0.80*fn), 0.0, 1.0)*uFoam;
+      // plus a collar where the water wraps round the base of the letters,
+      // churned so it does not read as a painted ring
+      float collar = textCollar(p)*smoothstep(0.35, 0.75, fbm2(p.xz*16.0 + vec2(uTime*0.9, -uTime*0.6)));
+      float foam  = clamp((edge*1.2 + crest*0.85 + collar*1.6)*(0.40 + 0.80*fn), 0.0, 1.0)*uFoam;
       col = mix(col, FOAM, foam);
 
     } else {

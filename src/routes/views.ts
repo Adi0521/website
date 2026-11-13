@@ -35,7 +35,7 @@ const home: RouteDef = {
          beach is built from it rather than declared alongside it, so the two
          cannot drift apart. It is transparent while the scene carries it. -->
     <section class="hero">
-      <h1 data-carve>Aditya</h1>
+      <h1 data-carve>Adi Kewalram</h1>
       <p class="lede">
         A beach at low sun. The sand is live — press into it and it remembers,
         until the wind fills it back in or a wave takes it.

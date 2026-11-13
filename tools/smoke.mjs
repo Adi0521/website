@@ -682,6 +682,12 @@ try {
     // byte-identical between the two and every difference is the name.
     const on = shot();
     const saved = b.textProp;
+    // The shadow alone, letters hidden — for the speckle check below.
+    b.textProp = () => {
+      const p = saved();
+      return p ? { ...p, solid: false } : null;
+    };
+    const shadowOnly = shot();
     b.textProp = null;
     const off = shot();
     b.textProp = saved;
@@ -710,21 +716,33 @@ try {
     // Measured as SPIKES, not gradients: a local extremum is speckle, while an
     // edge is monotone across and scores zero. Measuring the Laplacian instead
     // just detects the shadow's own outline.
+    //
+    // Measured on the SHADOW ALONE, with the letters hidden. Measured on the
+    // full frame, "darkened" also took in the letters' own surface, which is
+    // pitted and gritty on purpose, so the texture scored as speckle.
+    //
+    // And scored as the speckle the shadow ADDS: spikes in the shadowed frame
+    // that the same pixel does not already have unshadowed. Where the shadow
+    // falls on water the sun's glint spikes with or without it, and that is
+    // not the shadow's doing.
     const spike = (px, i, w) => {
       const c = px[i], l = px[i-4], r = px[i+4], u = px[i-w*4], d = px[i+w*4];
       const hx = (c-l)*(c-r) > 0 ? Math.min(Math.abs(c-l), Math.abs(c-r)) : 0;
       const hy = (c-u)*(c-d) > 0 ? Math.min(Math.abs(c-u), Math.abs(c-d)) : 0;
       return Math.max(hx, hy);
     };
-    let shadeN = 0, shadeSpikes = 0, baseSpikes = 0;
+    let shadeN = 0, shadeSpikes = 0, baseSpikes = 0, addedSpikes = 0;
     for (let y = 2; y < H - 2; y++) {
       for (let x = 2; x < W - 2; x++) {
         const k = (y * W + x) * 4;
-        if (dAt(on.px, off.px, k) <= 12) continue;
-        if (on.px[k] >= off.px[k]) continue;      // darkened only
+        if (dAt(shadowOnly.px, off.px, k) <= 12) continue;
+        if (shadowOnly.px[k] >= off.px[k]) continue;      // darkened only
         shadeN += 1;
-        if (spike(on.px, k, W) > 6) shadeSpikes += 1;
-        if (spike(off.px, k, W) > 6) baseSpikes += 1;
+        const sOn = spike(shadowOnly.px, k, W) > 6;
+        const sOff = spike(off.px, k, W) > 6;
+        if (sOn) shadeSpikes += 1;
+        if (sOff) baseSpikes += 1;
+        if (sOn && !sOff) addedSpikes += 1;
       }
     }
 
@@ -740,7 +758,8 @@ try {
         : null,
       diff: { changed: changed / (W * H), darker, lighter },
       speckle: { n: shadeN, on: shadeN ? shadeSpikes / shadeN : 0,
-                 off: shadeN ? baseSpikes / shadeN : 0 },
+                 off: shadeN ? baseSpikes / shadeN : 0,
+                 added: shadeN ? addedSpikes / shadeN : 0 },
       // §12: the heading must keep its LAYOUT, not merely exist. The mask is
       // measured from its box, so a display:none or a screen-reader clip would
       // take the sculpture with it.
@@ -769,10 +788,10 @@ try {
     `${(about.diff.changed * 100).toFixed(1)}% of the frame changes — ` +
     `${about.diff.darker}px darker (shadow and side walls), ${about.diff.lighter}px lighter (lit faces)`);
   check("the cast shadow is smooth, not speckled",
-    about.speckle.n > 2000 && about.speckle.on < 0.04,
-    `${(about.speckle.on * 100).toFixed(1)}% of darkened pixels are local spikes, against ` +
-    `${(about.speckle.off * 100).toFixed(1)}% on the same pixels unshadowed, over ${about.speckle.n}px ` +
-    `at the ${about.tier} tier`);
+    about.speckle.n > 2000 && about.speckle.added < 0.04,
+    `${(about.speckle.added * 100).toFixed(1)}% of shadowed pixels gain a spike the shadow put there ` +
+    `(${(about.speckle.on * 100).toFixed(1)}% spiky shadowed, ${(about.speckle.off * 100).toFixed(1)}% ` +
+    `on the same pixels unshadowed), over ${about.speckle.n}px at the ${about.tier} tier`);
   check("the heading keeps its layout while the scene carries it (§12)",
     about.headingText.length > 0 && !about.headingVisible &&
       about.headingBox !== null && about.headingBox.w > 40 && about.headingBox.h > 10,

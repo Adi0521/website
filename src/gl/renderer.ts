@@ -141,7 +141,7 @@ export class BeachRenderer {
     // stray fetch there would be read as letter coverage.
     this.prog.tex("uText", 2, text?.texture ?? field.staticTexture);
     this.prog.f("uTextOn", text ? 1 : 0);
-    this.prog.f("uTextSolid", text ? 1 : 0);
+    this.prog.f("uTextSolid", text && text.solid !== false ? 1 : 0);
     if (text) {
       this.prog.f3("uTextC", text.centre[0], text.centre[1], text.centre[2]);
       this.prog.f3("uTextR", text.right[0], text.right[1], text.right[2]);
@@ -157,6 +157,8 @@ export class BeachRenderer {
       this.prog.f("uTextErode", text.erode);
       this.prog.f("uTextSoft", text.soft);
       this.prog.f("uTextStr", text.strength);
+      this.prog.f("uTextCrumble", text.crumble);
+      this.prog.f("uTextTexture", text.relief);
     }
 
     drawFullscreen(gl);

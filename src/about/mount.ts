@@ -14,6 +14,8 @@
 import type { Beach } from "../beach";
 import { HeroName, DEFAULT_HERO } from "./hero";
 import { beachHeight } from "../sand/params";
+import { DEFAULT_SCROLL } from "../scroll";
+import { DEFAULT_CAMERA } from "../beach";
 
 export class AboutStations {
   private readonly hero: HeroName;
@@ -86,8 +88,9 @@ export class AboutStations {
    */
   private rebuild(): void {
     if (!this.live || !this.el) return;
-    const sand = beachHeight(DEFAULT_HERO.z, this.beach.config.water);
-    if (this.hero.build(this.el, sand)) this.pending = false;
+    const water = this.beach.config.water;
+    const sand = beachHeight(DEFAULT_HERO.z, water);
+    if (this.hero.build(this.el, sand, water.seaLevel, aimX(DEFAULT_HERO.z))) this.pending = false;
   }
 
   /**
@@ -112,4 +115,22 @@ export class AboutStations {
     this.hero.dispose();
     this.beach.textProp = null;
   }
+}
+
+/**
+ * World x where the middle of the screen crosses depth `z`, with the camera as
+ * it is at the top of the page — which is where the name is seen first.
+ *
+ * The camera looks slightly sideways (its azimuth is not π/2), so world x = 0
+ * is not quite screen centre away from the camera target; a name stood off the
+ * target drifts sideways in frame.
+ * Derived from the camera and scroll settings rather than tuned by eye, so
+ * changing either keeps the name centred.
+ */
+function aimX(z: number): number {
+  const az = DEFAULT_CAMERA.azimuth - DEFAULT_SCROLL.arc / 2; // scroll position 0
+  const target = DEFAULT_CAMERA.target;
+  const startZ = DEFAULT_SCROLL.startZ;
+  // The eye sits at target + (cos az, sin az)·r, looking back through target.
+  return target[0] + ((z - startZ) * Math.cos(az)) / Math.sin(az);
 }

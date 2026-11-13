@@ -85,7 +85,7 @@ const FOCUS_FPS = 30;
 /** Above this, the beach stops taking new marks. */
 const NO_BRUSH_ABOVE = 0.01;
 
-const DEFAULT_CAMERA: CameraState = {
+export const DEFAULT_CAMERA: CameraState = {
   azimuth: 1.55,
   elevation: 0.23,
   distance: 2.9,

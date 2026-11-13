@@ -43,6 +43,9 @@ export interface HeroNameOptions {
   thickness: number;
   /** How far the bottom edge sinks below the sand line, world units. */
   sink: number;
+  /** The least the baseline may sit above still water, world units. */
+  rise: number;
+
   /** Coverage above this counts as solid. */
   cut: number;
   /**
@@ -60,19 +63,35 @@ export interface HeroNameOptions {
   strength: number;
   /** Mask supersample. 2 is enough once the mip chain does the filtering. */
   supersample: number;
+  /** World units the letter edges wander by. Crumbles the outline. */
+  crumble: number;
+  /** Strength of the rocky surface texture (pits, layers, lumps, grit). */
+  relief: number;
 }
 
 export const DEFAULT_HERO: HeroNameOptions = {
-  width: 2.1,
-  z: 2.3,
+  // The width of the name's ink, world units — ~70% of the frame at this depth.
+  width: 2.3,
+  // In the shallow surf, just past the shoreline (z = 0). The seabed here is
+  // ~6cm under still water, so waves wash round the base of the letters.
+  z: -0.7,
   tilt: 0.16,
-  thickness: 0.035,
-  sink: 0.05,
+  thickness: 0.045,
+  // How far the baseline sits into the seabed.
+  sink: 0.012,
+  // ...but at least this far above still water. The swash runs ~10-15cm up
+  // here while a wave is in, and the letters are only ~25cm tall, so stood on
+  // the seabed half of each one went under. Below the baseline each letter
+  // carries on straight down into the seabed (see build), so a trough never
+  // shows it hovering.
+  rise: 0.03,
   cut: 0.5,
   erode: 0.35,
   soft: 0.05,
   strength: 0.92,
   supersample: 2,
+  crumble: 0.008,
+  relief: 1.0,
 };
 
 /** Everything render.frag needs to march and shade the name. */
@@ -87,17 +106,22 @@ export interface TextProp {
   thickness: number;
   /** Mask width in texels, for deriving mip levels. */
   px: number;
+  /**
+   * False draws only the name's shadow, not the letters. Diagnostic: lets the
+   * smoke test measure the cast shadow without the letters' own (deliberately
+   * pitted) surface counting as shadow.
+   */
+  solid?: boolean;
   cut: number;
   erode: number;
   soft: number;
   strength: number;
+  crumble: number;
+  relief: number;
 }
 
 export class HeroName {
   private tex: WebGLTexture | null = null;
-  /** Layout size of the source element, CSS pixels. */
-  private wpx = 1;
-  private hpx = 1;
   private maskPx = 1;
   private text = "";
 
@@ -122,58 +146,81 @@ export class HeroName {
   }
 
   /**
-   * Rasterizes the mask from `el` and sizes the slab from its box.
+   * Rasterizes the mask from `el`'s text and stands it on the beach.
+   *
+   * Sized from the font's own metrics, not from the element's box: the <h1> is
+   * a block that stretches to the whole column (which stretched the letters
+   * sideways when the box was used), and a two-word name can wrap inside it.
+   * The scene always sets the name on one line.
+   *
+   * `sandY` is the beach (or seabed) height at the name's z, `seaY` still
+   * water, and `x` the world x it is centred on.
    *
    * Returns false when the element has no layout yet — which is a real state
    * during a route change, not an error. The caller retries.
    */
-  build(el: HTMLElement, sandY: number): boolean {
-    const wpx = el.offsetWidth;
-    const hpx = el.offsetHeight;
-    if (wpx < 4 || hpx < 4) return false;
-    this.wpx = wpx;
-    this.hpx = hpx;
-    this.text = el.textContent?.trim() ?? "";
+  build(el: HTMLElement, sandY: number, seaY: number, x: number): boolean {
+    const label = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (el.offsetHeight < 4 || !label) return false;
+    this.text = label;
 
+    const cs = getComputedStyle(el);
     const R = Math.max(1, this.opts.supersample);
-    const cw = Math.round(wpx * R);
-    const ch = Math.round(hpx * R);
+    const fpx = parseFloat(cs.fontSize) * R;
+    const setup = (g: CanvasRenderingContext2D) => {
+      g.font = `${cs.fontWeight} ${fpx}px ${cs.fontFamily}`;
+      try {
+        g.letterSpacing = cs.letterSpacing;
+      } catch {
+        // Not every engine exposes it; the spacing then falls back to the face's.
+      }
+      g.textAlign = "center";
+      g.textBaseline = "alphabetic";
+    };
+    const probe = document.createElement("canvas").getContext("2d");
+    if (!probe) return false;
+    setup(probe);
+    const m = probe.measureText(label);
+    const inkW = m.width;
+    if (inkW < 4) return false;
+    const asc = m.actualBoundingBoxAscent || fpx * 0.75;
+    const desc = m.actualBoundingBoxDescent || 0;
+
+    // World units per canvas pixel. `width` is the width of the ink itself.
+    const pxToWorld = this.opts.width / inkW;
+    // Stood on the bed: the baseline sits `sink` into it, but at least `rise`
+    // above still water.
+    const bed = sandY - this.opts.sink;
+    const base = Math.max(bed, seaY + this.opts.rise);
+    // How far the letters have to carry on below the baseline to reach the bed.
+    const footPx = Math.round((base - bed) / pxToWorld);
+
+    // Margins leave room for the crumble and the mip chain's blur.
+    const side = Math.round(fpx * 0.12);
+    const pad = Math.round(fpx * 0.12);
+    const cw = Math.round(inkW) + side * 2;
+    const baseY = pad + Math.round(asc);
+    const ch = baseY + Math.max(Math.round(desc) + pad, footPx);
+
     const cv = document.createElement("canvas");
     cv.width = cw;
     cv.height = ch;
     const g = cv.getContext("2d");
     if (!g) return false;
-
     // Opaque black field, white letters. Sampling .r then needs no alpha
     // handling, and CLAMP_TO_EDGE past the padding reads as zero shadow.
     g.fillStyle = "#000";
     g.fillRect(0, 0, cw, ch);
-
-    const cs = getComputedStyle(el);
-    g.font = `${cs.fontWeight} ${parseFloat(cs.fontSize) * R}px ${cs.fontFamily}`;
-    try {
-      g.letterSpacing = cs.letterSpacing;
-    } catch {
-      // Not every engine exposes it; the width correction below absorbs the
-      // difference either way.
-    }
-    g.textAlign = "center";
-    g.textBaseline = "middle";
     g.fillStyle = "#fff";
-
-    // Canvas metrics and DOM layout disagree slightly, especially on letter
-    // spacing. Measure and correct, so the sculpture matches the element it was
-    // measured from — otherwise the shadow lands beside the letters rather than
-    // under them, which is the kind of error that looks like a bug in the light.
-    const padX = (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) * R;
-    const target = Math.max(1, cw - padX);
-    const m = g.measureText(el.textContent ?? "");
-    const sx = m.width > 1 ? target / m.width : 1;
-    g.save();
-    g.translate(cw / 2, ch / 2);
-    g.scale(sx, 1);
-    g.fillText(el.textContent ?? "", 0, 0);
-    g.restore();
+    setup(g);
+    g.fillText(label, cw / 2, baseY);
+    // Each letter carries on straight down below the baseline: the row just
+    // above it, stretched to the bottom of the canvas. Under water this is
+    // hidden; in a wave's trough it reads as the letter continuing into the
+    // sea rather than hovering over it.
+    if (footPx > 0) {
+      g.drawImage(cv, 0, baseY - 3, cw, 1, 0, baseY - 2, cw, ch - baseY + 2);
+    }
 
     const gl = this.gl;
     if (!this.tex) this.tex = gl.createTexture();
@@ -193,30 +240,13 @@ export class HeroName {
     gl.bindTexture(gl.TEXTURE_2D, null);
     this.maskPx = cw;
 
-    this.place(sandY);
-    return true;
-  }
-
-  /**
-   * Sizes the slab and stands it on the beach.
-   *
-   * The scale converts element pixels to world units, and the mask covers the
-   * same rect, so the half-extents follow directly from the element box.
-   */
-  private place(sandY: number): void {
-    const s = this.opts.width / Math.max(this.wpx, 1);
-    this.halfW = this.wpx * s * 0.5;
-    this.halfH = this.hpx * s * 0.5;
-    // Stood on the sand rather than floated over it: the bottom edge is one
-    // half-height below centre, so the centre rises by that much, less however
-    // far it is meant to sit into the beach.
+    this.halfW = cw * pxToWorld * 0.5;
+    this.halfH = ch * pxToWorld * 0.5;
+    // The quad centre is however far above the baseline the canvas puts it,
+    // foreshortened by the lean.
     const lean = Math.cos(this.opts.tilt);
-    this.centre = [0, sandY + this.halfH * lean - this.opts.sink, this.opts.z];
-  }
-
-  /** Re-stands the slab after the ramp height changes under it. */
-  replace(sandY: number): void {
-    this.place(sandY);
+    this.centre = [x, base + (baseY - ch / 2) * pxToWorld * lean, this.opts.z];
+    return true;
   }
 
   /**
@@ -263,6 +293,8 @@ export class HeroName {
       erode: this.opts.erode,
       soft: this.opts.soft,
       strength: this.opts.strength,
+      crumble: this.opts.crumble,
+      relief: this.opts.relief,
     };
   }
 
