@@ -11,6 +11,7 @@ uniform float uSunEl, uSunAz, uDX, uDZ, uHtw, uFog, uSteps;
 uniform float uCursorOn, uCursorR, uExposure, uFoam, uSat;
 uniform int   uView;
 #include "common/wave.glsl";
+#include "common/text.glsl";
 
 const vec3 SAND_LIT    = vec3(0.929,0.863,0.722);
 const vec3 SAND_SHADOW = vec3(0.361,0.478,0.600);
@@ -121,7 +122,35 @@ void main(){
   if(tHit < 0.0 && rd.y < 0.0 && t < 18.0) tHit = t;
 
   vec3 col;
-  if(tHit < 0.0){
+  float tTex; vec3 nTex;
+  bool gotTex = textSolid(ro, rd, tHit > 0.0 ? tHit : 1.0e9, tTex, nTex);
+
+  if(gotTex){
+    // ------------------------------------------------- the name in sand --
+    // Packed sand: the same albedo, grain and sky-fill shadow as the beach, so
+    // the structure BELONGS to the scene rather than sitting on top of it.
+    // §5's whole argument is that everything shares one warm sun and one blue
+    // sky-fill; a title with its own material would step outside that and read
+    // as a decal however well it were modelled.
+    vec3 p = ro + rd*tTex;
+    vec3 N = nTex;
+    float gr = hash21(floor(p.xz*430.0 + vec2(p.y*430.0)));
+    vec3 albedo = SAND_LIT*(0.90 + 0.16*gr);
+    float ndl = max(dot(N,L), 0.0);
+    float sh  = sunShadow(p.xz, p.y, L);
+    vec3 direct  = SUN_RIM*ndl*sh*uExposure/max(sin(uSunEl), 0.10);
+    vec3 ambient = SAND_SHADOW*(0.40 + 0.60*max(N.y,0.0))*uSky;
+    // Light coming back up off the beach, which is bright and directly below.
+    vec3 bounce  = SAND_LIT*uSky*0.30*(0.35 + 0.65*max(-N.y,0.0));
+    col = albedo*(direct + ambient + bounce);
+    vec3 Vv = normalize(ro - p);
+    float nh = max(dot(N, normalize(L + Vv)), 0.0);
+    col += SUN_RIM*pow(nh, 36.0)*0.045*sh;
+    float gs = hash21(floor(p.xz*880.0 + vec2(p.y*880.0)));
+    col += SUN_RIM*pow(gs,22.0)*pow(nh,7.0)*sh*uSparkle*0.7/(1.0 + tTex*1.6);
+    if(uView == 2) col = N*0.5 + 0.5;
+    if(uView == 0) col = mix(col, skyCol(rd, L), 1.0 - exp(-tTex*uFog));
+  } else if(tHit < 0.0){
     col = skyCol(rd, L);
   } else {
     vec3 p  = ro + rd*tHit;
@@ -188,13 +217,20 @@ void main(){
       float micro = (0.055 + 0.10*dst)*(1.0 - 0.7*wet)/(1.0 + tHit*2.2);
       N = normalize(N + vec3((mx-m0)*micro, 0.0, (my-m0)*micro));
 
+      // The name's shadow raking across the beach. One plane intersection and
+      // a few mip-filtered taps — no second march, so no sampling pattern and
+      // nothing to alias into speckle.
       float sh = sunShadow(p.xz, p.y, L);
+      sh = min(sh, 1.0 - textShadow(p, L));
 
       float wide = heightAt(p.xz + vec2( 7.0*ew,0.0))
                  + heightAt(p.xz + vec2(-7.0*ew,0.0))
                  + heightAt(p.xz + vec2(0.0, 7.0*ew))
                  + heightAt(p.xz + vec2(0.0,-7.0*ew));
       float ao = clamp(1.0 - (wide*0.25 - h0)*2.6, 0.25, 1.0);
+      // Sky the slab blocks from straight overhead. Only bites once the quad
+      // leans far enough to sit over the sand at all.
+      ao *= 1.0 - textAO(p)*0.42;
 
       float grain = texture(uStatic, s2uv(p.xz)).g;
       vec3 albedo = SAND_LIT*(0.93 + 0.14*grain);

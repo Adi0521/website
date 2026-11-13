@@ -13,10 +13,9 @@ import { ROUTES, STATIC_PATHS, notFound } from "./routes/views";
  * one WebGL context across all of it, and the focus pull as defocus plus a
  * camera push (§10).
  *
- * What Phase 4 adds here is `AboutStations`, which is the first thing to write
- * into the sand that is not a pointer — the hero carve (§8.1) and the
- * footprint timeline (§8.2). It mounts and unmounts with About's DOM, because
- * a focus page does not have a hero to carve.
+ * What Phase 4 adds here is `AboutStations`, which puts the name into the scene
+ * as a structure sculpted from sand (§8.1) — rasterized from the real <h1> and
+ * marched as a solid. §8.2's footprint trail is content-only for now.
  */
 
 boot();
@@ -36,14 +35,15 @@ function boot(): void {
       // PRD §12: reduced motion means no camera motion either, so the scroll
       // driver is not wired at all rather than wired and suppressed.
       scroll = beach.reducedMotion ? null : new ScrollCamera(beach);
-      // §12 again: reduced motion gets a static beach, and a title pressing
-      // itself into the sand on load is motion. The DOM <h1> is the title in
-      // that mode, which is what it already is in the no-WebGL fallback.
-      about = beach.reducedMotion ? null : new AboutStations(beach);
+      // Wired even under reduced motion, unlike the scroll camera. The name is
+      // a static structure standing in the sand — nothing about it moves — so
+      // suppressing it would remove content rather than motion, and §12 asks
+      // for a static beach, not an emptier one.
+      about = new AboutStations(beach);
       const stations = about;
       beach.onFrame = (dt) => {
         scroll?.update(dt);
-        stations?.update(dt);
+        stations?.update();
       };
       console.info(
         `[beach] ${beach.tier.name} — field ${beach.field.width}×${beach.field.height}`,

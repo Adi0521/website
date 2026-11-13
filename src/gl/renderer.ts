@@ -21,6 +21,9 @@ import vertSrc from "./shaders/fullscreen.vert";
 import renderSrc from "./shaders/render.frag";
 import compositeSrc from "./shaders/composite.frag";
 
+export type { TextProp } from "../about/hero";
+import type { TextProp } from "../about/hero";
+
 export interface CursorState {
   /** World XZ of the ring. */
   world: [number, number];
@@ -77,6 +80,7 @@ export class BeachRenderer {
     cursor: CursorState,
     view: DebugView,
     focus = 0,
+    text: TextProp | null = null,
   ): void {
     if (!field.ready) return;
     const gl = this.gl;
@@ -131,6 +135,29 @@ export class BeachRenderer {
     this.prog.f("uCursorOn", cursor.visible ? 1 : 0);
     this.prog.f("uCursorR", cursor.radius);
     this.prog.i("uView", view);
+
+    // The name (§8.1). The sampler is bound every frame even with nothing to
+    // draw: left unset it defaults to unit 0, which holds the sand field, and a
+    // stray fetch there would be read as letter coverage.
+    this.prog.tex("uText", 2, text?.texture ?? field.staticTexture);
+    this.prog.f("uTextOn", text ? 1 : 0);
+    this.prog.f("uTextSolid", text ? 1 : 0);
+    if (text) {
+      this.prog.f3("uTextC", text.centre[0], text.centre[1], text.centre[2]);
+      this.prog.f3("uTextR", text.right[0], text.right[1], text.right[2]);
+      this.prog.f3("uTextU", text.up[0], text.up[1], text.up[2]);
+      this.prog.f3("uTextN", text.normal[0], text.normal[1], text.normal[2]);
+      // Never zero: slabUV divides by these, and a degenerate quad puts every
+      // point in the world inside the letters.
+      this.prog.f("uTextHW", Math.max(text.halfW, 1e-4));
+      this.prog.f("uTextHH", Math.max(text.halfH, 1e-4));
+      this.prog.f("uTextTh", Math.max(text.thickness, 1e-4));
+      this.prog.f("uTextPx", Math.max(text.px, 1));
+      this.prog.f("uTextCut", text.cut);
+      this.prog.f("uTextErode", text.erode);
+      this.prog.f("uTextSoft", text.soft);
+      this.prog.f("uTextStr", text.strength);
+    }
 
     drawFullscreen(gl);
 

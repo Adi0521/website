@@ -28,11 +28,14 @@ const home: RouteDef = {
   description: () =>
     "A beach at low sun, where the sand is a live surface that remembers what touched it.",
   render: () => `
-    <!-- data-carve is read by src/about/mount.ts, which rasterizes exactly this
-         string. The <h1> stays visible and the sand carries an impression of
-         it, so the two must agree — same face, same weight, same tracking. -->
+    <!-- data-carve marks the heading src/about/hero.ts rasterizes its mask
+         from — its computed font, size and letter-spacing, at its own measured
+         box. The element is the single source of truth: it stays in the DOM as
+         the page's real heading for §12, and the structure standing on the
+         beach is built from it rather than declared alongside it, so the two
+         cannot drift apart. It is transparent while the scene carries it. -->
     <section class="hero">
-      <h1 data-carve>Adi</h1>
+      <h1 data-carve>Aditya</h1>
       <p class="lede">
         A beach at low sun. The sand is live — press into it and it remembers,
         until the wind fills it back in or a wave takes it.

@@ -1,193 +1,273 @@
 /**
- * The hero carve — PRD §8.1.
+ * The name as a sand structure — PRD §8.1, ported from prototype/hero-name.html.
  *
- * "Title carved in sand. Presses in on load, holds, erodes. Scrolling away
- * accelerates decay; scrolling back re-presses."
+ * §8.1 says "title carved in sand… presses in on load, holds, erodes", and the
+ * first build did exactly that: a mask stamped into the heightfield, an
+ * impression lying flat on the ground. This is the other reading of the same
+ * sentence — the name SCULPTED from sand rather than pressed into it, standing
+ * on the beach as a slab with real thickness and real side walls, lit by the
+ * same sun as the ground it stands on.
  *
- * Two things about how that is built here.
+ * ── The mask comes from the DOM, not from a font call ──────────────────────
  *
- * **The carve sits UNDER the real <h1>, not instead of it.** The DOM title
- * stays visible and the sand carries an impression of it, which is why the
- * mask is rasterized from the same face, weight and letter-spacing as the h1
- * in type.css — the two are stacked, so any disagreement between them reads
- * immediately as a misprint rather than as a shadow.
+ * The <h1> is laid out by real CSS, and the mask is rasterized from THAT — its
+ * computed font, weight, size and letter-spacing, at its own measured box. Two
+ * things follow, and both matter more than the convenience:
  *
- * **The carve is placed in world space, not screen space.** It is written into
- * the sand field, and the field is a clipmap that travels with the camera. A
- * title pinned to the viewport would drag its own trench up the beach as you
- * scrolled. Pinned to the world, it stays where it was pressed, recedes as the
- * camera retreats, and eventually leaves the patch entirely — at which point
- * the sand it occupied is gone, and scrolling back genuinely re-presses it
- * rather than revealing it. That is the §8.1 behaviour falling out of the
- * clipmap rather than being animated on top of it.
+ * - The heading stays the single source of truth. §12 wants real text in the
+ *   document, focusable, announced and crawlable; here that same element is
+ *   also what the scene is built from, so the two cannot drift apart.
+ * - Whatever CSS does — a breakpoint, a different clamp, a font that loads
+ *   late — the sculpture follows, because it is measured rather than declared.
+ *
+ * The element then goes transparent rather than away: it keeps its layout (the
+ * mask is measured from it) and its place in the accessibility tree.
  */
 
-import type { MaskStamp, TextMaskOptions } from "../sand/mask";
-import { DEFAULT_TEXT_MASK, TextMask, displayFontReady } from "../sand/mask";
+import type { CameraBasis } from "../gl/camera";
 
-export interface HeroCarveOptions {
+export interface HeroNameOptions {
+  /** World width of the name. Height follows from the element's aspect. */
+  width: number;
+  /** World Z it stands at. */
+  z: number;
   /**
-   * World Z of the carve's centre.
+   * Lean back from upright, radians.
    *
-   * Above the swash, deliberately. §7.3 measures the reach at up to 1.7× the
-   * nominal figure with `swashLateral` at 0.7, so water gets to z≈1.76 — and
-   * §7.6 is blunt that nothing persists below that. A title centred any lower
-   * would be scrubbed by the first wave, which is a fine effect and the wrong
-   * one for the thing carrying the visitor's first impression.
+   * Upright keeps the name readable but throws a long raking shadow; flat makes
+   * the shadow legible and the letters foreshortened. §5's grazing sun makes
+   * this a real trade rather than a detail.
    */
-  centerZ: number;
-  /** World half-width. Half-depth is derived from the mask's own aspect. */
-  halfWidth: number;
-  depth: number;
-  rim: number;
+  tilt: number;
+  /** Half thickness of the slab, world units. */
+  thickness: number;
+  /** How far the bottom edge sinks below the sand line, world units. */
+  sink: number;
+  /** Coverage above this counts as solid. */
+  cut: number;
   /**
-   * Seconds the carve holds before the wind starts on it. Long, because §8.1
-   * wants it to *hold* — an ordinary mark's 1.2s would have the title
-   * softening while the page was still settling.
+   * Extra mip levels on the solid.
+   *
+   * The weathering dial, and it works by FILTERING rather than by displacing:
+   * a coarser mip rounds the letterforms off the way wind and salt would. An
+   * earlier attempt got this texture by displacing a distance field, which is
+   * what made rays tunnel through the geometry — this cannot, because the
+   * silhouette is still a clean threshold of a prefiltered image.
    */
-  fillDelay: number;
-  /** Seconds the press ramps in over on load. */
-  attack: number;
-  /**
-   * Seconds at full pressure before the release. The stamp is target-based, so
-   * holding does not dig — it converges, and this is how long it stays
-   * converged before the sand is handed back to the wind.
-   */
-  hold: number;
-  /** Seconds the press falls away over, once the hold is up. */
-  release: number;
-  /**
-   * Scroll fraction at which the carve is fully lifted. Past this the hero has
-   * left the viewport, and §8.1 wants the decay to accelerate rather than the
-   * title to sit there pristine behind the next section.
-   */
-  scrollOut: number;
+  erode: number;
+  /** Shadow penumbra rate, and how dark the shadow gets. */
+  soft: number;
+  strength: number;
+  /** Mask supersample. 2 is enough once the mip chain does the filtering. */
+  supersample: number;
 }
 
-export const DEFAULT_HERO: HeroCarveOptions = {
-  centerZ: 2.7,
-  halfWidth: 1.15,
-  depth: 0.42,
-  rim: 0.45,
-  fillDelay: 6,
-  attack: 0.7,
-  hold: 2.6,
-  release: 1.8,
-  scrollOut: 0.16,
+export const DEFAULT_HERO: HeroNameOptions = {
+  width: 2.1,
+  z: 2.3,
+  tilt: 0.16,
+  thickness: 0.035,
+  sink: 0.05,
+  cut: 0.5,
+  erode: 0.35,
+  soft: 0.05,
+  strength: 0.92,
+  supersample: 2,
 };
 
-export class HeroCarve {
-  private readonly mask: TextMask;
+/** Everything render.frag needs to march and shade the name. */
+export interface TextProp {
+  texture: WebGLTexture;
+  centre: [number, number, number];
+  right: [number, number, number];
+  up: [number, number, number];
+  normal: [number, number, number];
+  halfW: number;
+  halfH: number;
+  thickness: number;
+  /** Mask width in texels, for deriving mip levels. */
+  px: number;
+  cut: number;
+  erode: number;
+  soft: number;
+  strength: number;
+}
+
+export class HeroName {
+  private tex: WebGLTexture | null = null;
+  /** Layout size of the source element, CSS pixels. */
+  private wpx = 1;
+  private hpx = 1;
+  private maskPx = 1;
   private text = "";
-  private rasterized = false;
-  /** Seconds since the carve was armed. Drives attack, hold and release. */
-  private age = 0;
-  /** 0..1, eased. What actually reaches the shader as pressure. */
-  private press = 0;
-  /** Set by the page each frame: how far the hero has scrolled away, 0..1. */
-  private away = 0;
+
+  private centre: [number, number, number] = [0, 0, 0];
+  private right: [number, number, number] = [1, 0, 0];
+  private up: [number, number, number] = [0, 1, 0];
+  private normal: [number, number, number] = [0, 0, 1];
+  private halfW = 1;
+  private halfH = 0.2;
 
   constructor(
-    gl: WebGL2RenderingContext,
-    private readonly opts: HeroCarveOptions = DEFAULT_HERO,
-  ) {
-    this.mask = new TextMask(gl);
-  }
+    private readonly gl: WebGL2RenderingContext,
+    private readonly opts: HeroNameOptions = DEFAULT_HERO,
+  ) {}
 
-  /**
-   * Rasterizes the title. Awaits the display face first — §5 fixes the display
-   * type as Mattone, and a carve is not a render that can be redone next
-   * frame: it is written into a persistent field, so a mask rasterized in the
-   * fallback face would sit in the sand until the wind took it.
-   */
-  async arm(text: string, opts: TextMaskOptions = DEFAULT_TEXT_MASK): Promise<boolean> {
-    this.text = text;
-    const loaded = await displayFontReady(opts);
-    if (!loaded) {
-      // The face never arrived. Carving the fallback would be a different
-      // design pressed permanently into the beach, so this carves nothing and
-      // leaves the DOM title to stand on its own — which it already does.
-      console.warn(`[hero] ${opts.family} unavailable — skipping the carve`);
-      return false;
-    }
-    this.rasterized = this.mask.render(text, opts);
-    this.age = 0;
-    this.press = 0;
-    return this.rasterized;
-  }
-
-  /** Re-presses from the top of the envelope. Scrolling back calls this. */
-  rearm(): void {
-    this.age = 0;
-  }
-
-  get armed(): boolean {
-    return this.rasterized;
-  }
-
-  /**
-   * How far the hero has scrolled out of view, 0..1. The page owns this
-   * because the page owns the scroll — the carve should not be reaching into
-   * the document to measure a section it does not own.
-   */
-  setAway(away: number): void {
-    this.away = Math.min(1, Math.max(0, away));
-  }
-
-  update(dt: number): void {
-    this.age += dt;
-    const { attack, hold, release, scrollOut } = this.opts;
-
-    // The load envelope: in, hold, out. Written as a target the press eases
-    // toward rather than as a scripted keyframe timeline, for the same reason
-    // the focus pull is (see FOCUS_RATE in beach.ts) — it has to be
-    // interruptible. Scrolling back mid-release must re-press from wherever
-    // the release actually got to, not restart an animation.
-    let envelope: number;
-    if (this.age < attack) envelope = this.age / Math.max(attack, 1e-4);
-    else if (this.age < attack + hold) envelope = 1;
-    else envelope = Math.max(0, 1 - (this.age - attack - hold) / Math.max(release, 1e-4));
-
-    // Scrolling away lifts the press outright. Not a second decay curve on top
-    // of the envelope: the sand already has one, and §6.2's transport is what
-    // §8.1 means by "decay". Lifting the stamp hands the mark back to the wind,
-    // and the wind is the thing that erodes it.
-    const target = envelope * (1 - Math.min(1, this.away / Math.max(scrollOut, 1e-4)));
-    this.press += (target - this.press) * (1 - Math.exp(-9 * dt));
-    if (this.press < 0.004) this.press = 0;
-  }
-
-  /** The stamp for this frame, or null when there is nothing pressing. */
-  stamp(): MaskStamp | null {
-    if (!this.rasterized || this.press <= 0) return null;
-    const tex = this.mask.texture;
-    if (!tex) return null;
-    const { halfWidth, centerZ, depth, rim, fillDelay } = this.opts;
-    return {
-      texture: tex,
-      center: [0, centerZ],
-      // Half-depth from the mask's own aspect, so the type is never stretched.
-      // Getting this wrong is invisible on a grazing camera until it is not:
-      // the foreshortening hides a few percent of skew and then suddenly does
-      // not, at the top of the scroll where the carve is closest to square on.
-      half: [halfWidth, halfWidth / Math.max(this.mask.aspect, 1e-3)],
-      pressure: this.press,
-      depth,
-      rim,
-      fillDelay,
-    };
-  }
-
-  /** Diagnostic — read by the smoke test to assert the carve is live. */
-  get pressure(): number {
-    return this.press;
+  get ready(): boolean {
+    return this.tex !== null;
   }
 
   get label(): string {
     return this.text;
   }
 
+  /**
+   * Rasterizes the mask from `el` and sizes the slab from its box.
+   *
+   * Returns false when the element has no layout yet — which is a real state
+   * during a route change, not an error. The caller retries.
+   */
+  build(el: HTMLElement, sandY: number): boolean {
+    const wpx = el.offsetWidth;
+    const hpx = el.offsetHeight;
+    if (wpx < 4 || hpx < 4) return false;
+    this.wpx = wpx;
+    this.hpx = hpx;
+    this.text = el.textContent?.trim() ?? "";
+
+    const R = Math.max(1, this.opts.supersample);
+    const cw = Math.round(wpx * R);
+    const ch = Math.round(hpx * R);
+    const cv = document.createElement("canvas");
+    cv.width = cw;
+    cv.height = ch;
+    const g = cv.getContext("2d");
+    if (!g) return false;
+
+    // Opaque black field, white letters. Sampling .r then needs no alpha
+    // handling, and CLAMP_TO_EDGE past the padding reads as zero shadow.
+    g.fillStyle = "#000";
+    g.fillRect(0, 0, cw, ch);
+
+    const cs = getComputedStyle(el);
+    g.font = `${cs.fontWeight} ${parseFloat(cs.fontSize) * R}px ${cs.fontFamily}`;
+    try {
+      g.letterSpacing = cs.letterSpacing;
+    } catch {
+      // Not every engine exposes it; the width correction below absorbs the
+      // difference either way.
+    }
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillStyle = "#fff";
+
+    // Canvas metrics and DOM layout disagree slightly, especially on letter
+    // spacing. Measure and correct, so the sculpture matches the element it was
+    // measured from — otherwise the shadow lands beside the letters rather than
+    // under them, which is the kind of error that looks like a bug in the light.
+    const padX = (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) * R;
+    const target = Math.max(1, cw - padX);
+    const m = g.measureText(el.textContent ?? "");
+    const sx = m.width > 1 ? target / m.width : 1;
+    g.save();
+    g.translate(cw / 2, ch / 2);
+    g.scale(sx, 1);
+    g.fillText(el.textContent ?? "", 0, 0);
+    g.restore();
+
+    const gl = this.gl;
+    if (!this.tex) this.tex = gl.createTexture();
+    if (!this.tex) return false;
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+    // MIPMAPPED, and that is the load-bearing decision in this whole file. The
+    // solid takes its detail from the mip chain and the shadow takes its
+    // penumbra from it, so both prefilter instead of aliasing — distance
+    // softens them rather than breaking them into noise.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    this.maskPx = cw;
+
+    this.place(sandY);
+    return true;
+  }
+
+  /**
+   * Sizes the slab and stands it on the beach.
+   *
+   * The scale converts element pixels to world units, and the mask covers the
+   * same rect, so the half-extents follow directly from the element box.
+   */
+  private place(sandY: number): void {
+    const s = this.opts.width / Math.max(this.wpx, 1);
+    this.halfW = this.wpx * s * 0.5;
+    this.halfH = this.hpx * s * 0.5;
+    // Stood on the sand rather than floated over it: the bottom edge is one
+    // half-height below centre, so the centre rises by that much, less however
+    // far it is meant to sit into the beach.
+    const lean = Math.cos(this.opts.tilt);
+    this.centre = [0, sandY + this.halfH * lean - this.opts.sink, this.opts.z];
+  }
+
+  /** Re-stands the slab after the ramp height changes under it. */
+  replace(sandY: number): void {
+    this.place(sandY);
+  }
+
+  /**
+   * Turns the quad to face the camera horizontally, leaning back by `tilt`.
+   *
+   * This does face the viewer, which is worth naming against §3's ban on
+   * autonomous camera motion. The distinction is that §3 rules out the CAMERA
+   * moving on its own — an orbit that fights the scroll and destabilises text
+   * placement. Nothing here moves the camera, and About's azimuth only sweeps
+   * ~10° across the whole scroll (§13), so the turn is a couple of degrees end
+   * to end rather than anything that reads as motion.
+   */
+  orient(basis: CameraBasis): void {
+    const f: [number, number] = [basis.ro[0] - this.centre[0], basis.ro[2] - this.centre[2]];
+    const fl = Math.hypot(f[0], f[1]) || 1;
+    f[0] /= fl;
+    f[1] /= fl;
+    const R: [number, number, number] = [f[1], 0, -f[0]];
+    const ct = Math.cos(this.opts.tilt);
+    const st = Math.sin(this.opts.tilt);
+    const U: [number, number, number] = [-f[0] * st, ct, -f[1] * st];
+    this.right = R;
+    this.up = U;
+    this.normal = [
+      R[1] * U[2] - R[2] * U[1],
+      R[2] * U[0] - R[0] * U[2],
+      R[0] * U[1] - R[1] * U[0],
+    ];
+  }
+
+  prop(): TextProp | null {
+    if (!this.tex) return null;
+    return {
+      texture: this.tex,
+      centre: this.centre,
+      right: this.right,
+      up: this.up,
+      normal: this.normal,
+      halfW: this.halfW,
+      halfH: this.halfH,
+      thickness: this.opts.thickness,
+      px: this.maskPx,
+      cut: this.opts.cut,
+      erode: this.opts.erode,
+      soft: this.opts.soft,
+      strength: this.opts.strength,
+    };
+  }
+
   dispose(): void {
-    this.mask.dispose();
+    if (this.tex) this.gl.deleteTexture(this.tex);
+    this.tex = null;
   }
 }

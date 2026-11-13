@@ -10,6 +10,7 @@
 
 import type { Brush } from "./agents/types";
 import type { MaskStamp } from "./sand/mask";
+import type { TextProp } from "./about/hero";
 import { createContext, GLUnsupported } from "./gl/context";
 import { bindFullscreenTriangle, ShaderError } from "./gl/program";
 import { cameraBasis, groundHit, type CameraState } from "./gl/camera";
@@ -180,6 +181,17 @@ export class Beach {
   maskStamp: (() => MaskStamp | null) | null = null;
 
   /**
+   * The name standing on the beach (§8.1) — geometry the renderer marches,
+   * not a mark.
+   *
+   * Unlike the stamp, this is NOT suppressed on a focus page. §10 turns off new
+   * marks because sand deforming behind text is what competes with reading; the
+   * name is part of the scene, and having the beach lose a structure every time
+   * you opened a project would be a different thing entirely.
+   */
+  textProp: (() => TextProp | null) | null = null;
+
+  /**
    * The camera with the pull applied. Derived rather than written back, because
    * `camera` belongs to the scroll driver — mutating it here would make the
    * push permanent the moment the pull was interrupted.
@@ -188,6 +200,17 @@ export class Beach {
     if (this.focus <= 0.001) return this.camera;
     const push = this.config.focus.push;
     return { ...this.camera, distance: this.camera.distance * (1 - push * this.focus) };
+  }
+
+  /**
+   * The camera basis the shader is actually using, pull included.
+   *
+   * Exposed because the name has to turn to face it (§8.1), and rebuilding the
+   * basis from `camera` at the call site would be a second copy of the same
+   * construction — one that agreed with this until someone changed the pull.
+   */
+  get basis(): ReturnType<typeof cameraBasis> {
+    return cameraBasis(this.pushedCamera());
   }
 
   /** Pointer state in world space. Diagnostic — the brush is derived from it. */
@@ -333,7 +356,7 @@ export class Beach {
     this.field.step(0, null, this.waves, this.time);
     this.renderer.render(
       this.field, this.pushedCamera(), this.config, this.waves, this.time,
-      this.cursor(), this.view, this.focus,
+      this.cursor(), this.view, this.focus, this.textProp?.() ?? null,
     );
   }
 
@@ -438,7 +461,7 @@ export class Beach {
 
     this.renderer.render(
       this.field, this.pushedCamera(), this.config, this.waves, this.time,
-      this.cursor(), this.view, this.focus,
+      this.cursor(), this.view, this.focus, this.textProp?.() ?? null,
     );
 
   };

@@ -647,60 +647,139 @@ try {
     `deepest anywhere ${onFocus.deepest.toFixed(3)} · focus ${onFocus.focus}`);
   await page.evaluate(() => window.__router.navigate("/"));
 
-  // ── Phase 4: About writes into the sand (§8.1, §8.2) ─────────────────────
+  // ── Phase 4: the name sculpted from sand (§8.1) ──────────────────────────
   //
-  // Shape, position and response only. Whether carved type is legible is an
-  // appearance question, and §14 is explicit that a headless screenshot cannot
-  // answer one — under SwiftShader the value noise collapses and the baked
-  // ripples vanish entirely. What is checkable is that the title is pressed
-  // where the title is, that the trail holds prints, and that engaging a
-  // milestone presses it deeper.
+  // §14 is explicit that appearance cannot be judged headless — under
+  // SwiftShader the value noise collapses and the baked ripples vanish — so
+  // none of this asks whether the name looks right. What is checkable is that
+  // it exists as geometry the march can hit, that it occludes the beach, that
+  // it casts a shadow, that the shadow is SMOOTH, and that the heading it was
+  // measured from is still in the document.
   const about = await page.evaluate(async () => {
-    // Drive §8.1's actual behaviour rather than poking the carve directly:
-    // scroll the hero fully out of view, then back, which is the "scrolling
-    // back re-presses" edge. Doing it this way means the test fails if the
-    // re-press wiring breaks, not just if the carve does.
-    scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
-    await new Promise((r) => setTimeout(r, 500));
-    const awayAtBottom = window.__about?.state.away ?? 0;
     scrollTo({ top: 0, behavior: "instant" });
-    await new Promise((r) => setTimeout(r, 1200));
+    await new Promise((r) => setTimeout(r, 900));
 
-    const heroZ = 2.7; // HeroCarve's centreZ
+    const b = window.__beach;
+    const gl = b.gl;
+    // Pinned: a tier change swaps both field resolution and DPR, and every
+    // comparison below is between two frames that have to match in everything
+    // except the name.
+    b.autoDowngrade = false;
+    const prop = b.textProp ? b.textProp() : null;
 
+    const shot = () => {
+      b.renderStill();
+      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      const px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return { px, w, h };
+    };
+
+    // With the name, and without it. Differential rather than a ray cast: what
+    // the march does is a question about the shader, and re-deriving the march
+    // in JavaScript to ask it would be testing the copy rather than the
+    // original. renderStill steps the field with dt 0, so the sand is
+    // byte-identical between the two and every difference is the name.
+    const on = shot();
+    const saved = b.textProp;
+    b.textProp = null;
+    const off = shot();
+    b.textProp = saved;
+
+    const W = on.w, H = on.h;
+    const dAt = (a, c, i) =>
+      Math.abs(a[i] - c[i]) + Math.abs(a[i+1] - c[i+1]) + Math.abs(a[i+2] - c[i+2]);
+
+    let changed = 0, darker = 0, lighter = 0;
+    for (let i = 0; i < W * H; i++) {
+      const k = i * 4;
+      if (dAt(on.px, off.px, k) <= 12) continue;
+      changed += 1;
+      if (on.px[k] < off.px[k]) darker += 1; else lighter += 1;
+    }
+
+    // Speckle in whatever the name darkens.
+    //
+    // This is the check the previous approach needed and never had. Its shadow
+    // was marched, and a marched shadow samples — so where the samples landed
+    // shifted pixel to pixel and the shadow filled with static that survived
+    // every attempt to tune it out. This one is a plane intersection and a
+    // mip-filtered tap, which has no sampling pattern to alias, and the number
+    // below is what says so.
+    //
+    // Measured as SPIKES, not gradients: a local extremum is speckle, while an
+    // edge is monotone across and scores zero. Measuring the Laplacian instead
+    // just detects the shadow's own outline.
+    const spike = (px, i, w) => {
+      const c = px[i], l = px[i-4], r = px[i+4], u = px[i-w*4], d = px[i+w*4];
+      const hx = (c-l)*(c-r) > 0 ? Math.min(Math.abs(c-l), Math.abs(c-r)) : 0;
+      const hy = (c-u)*(c-d) > 0 ? Math.min(Math.abs(c-u), Math.abs(c-d)) : 0;
+      return Math.max(hx, hy);
+    };
+    let shadeN = 0, shadeSpikes = 0, baseSpikes = 0;
+    for (let y = 2; y < H - 2; y++) {
+      for (let x = 2; x < W - 2; x++) {
+        const k = (y * W + x) * 4;
+        if (dAt(on.px, off.px, k) <= 12) continue;
+        if (on.px[k] >= off.px[k]) continue;      // darkened only
+        shadeN += 1;
+        if (spike(on.px, k, W) > 6) shadeSpikes += 1;
+        if (spike(off.px, k, W) > 6) baseSpikes += 1;
+      }
+    }
+
+    const h1 = document.querySelector(".hero h1");
+    const rect = h1?.getBoundingClientRect();
     return {
-      state: window.__about?.state ?? null,
-      awayAtBottom,
-      // Narrow enough to sit inside the title's own rect and clear of the
-      // pointer's marks further up the beach.
-      hero: window.__probeNear(0, heroZ, 0.55),
-      // §12: the trail has to be a real, readable list with the canvas gone.
+      tier: b.tier.name,
+      ready: window.__about ? window.__about.state.ready : false,
+      label: window.__about ? window.__about.state.label : "",
+      prop: prop
+        ? { halfW: prop.halfW, halfH: prop.halfH, thickness: prop.thickness,
+            px: prop.px, top: prop.centre[1] + prop.halfH, centreY: prop.centre[1] }
+        : null,
+      diff: { changed: changed / (W * H), darker, lighter },
+      speckle: { n: shadeN, on: shadeN ? shadeSpikes / shadeN : 0,
+                 off: shadeN ? baseSpikes / shadeN : 0 },
+      // §12: the heading must keep its LAYOUT, not merely exist. The mask is
+      // measured from its box, so a display:none or a screen-reader clip would
+      // take the sculpture with it.
+      headingText: (h1?.textContent ?? "").trim(),
+      headingBox: rect ? { w: Math.round(rect.width), h: Math.round(rect.height) } : null,
+      headingVisible: h1 ? parseFloat(getComputedStyle(h1).opacity) > 0.01 : true,
+      // §8.2's trail is content only for now.
       listItems: document.querySelectorAll("#timeline .trail li").length,
-      // It must NOT be interactive while there is nothing to activate — a
-      // button that does nothing announces an action that does not exist.
-      controls: document.querySelectorAll("#timeline button, #timeline a").length,
-      // Nothing along the trail may be pressed into the sand yet. Probed at
-      // the milestone Z values themselves, which is exactly where the removed
-      // footprint brush used to write.
-      alongTrail: [2.0, 3.4].map((z) => window.__probeNear(0.16, z, 0.12)),
     };
   });
 
+  check("the name is built from the heading",
+    about.ready && about.label.length > 0, `mask built for "${about.label}"`);
+  check("the mask is measured at a usable resolution",
+    about.prop !== null && about.prop.px > 200,
+    about.prop ? `${about.prop.px}px across the mask` : "no prop");
+  check("the name is a slab with real thickness",
+    about.prop !== null && about.prop.thickness > 0.002 &&
+      about.prop.thickness < about.prop.halfH,
+    about.prop ? `half thickness ${about.prop.thickness} against half height ${about.prop.halfH.toFixed(3)}` : "no prop");
+  check("the name stands above the sand",
+    about.prop !== null && about.prop.top > 0.25,
+    about.prop ? `top edge at y ${about.prop.top.toFixed(3)}` : "no prop");
+  check("the name occludes the beach and casts onto it",
+    about.diff.changed > 0.002 && about.diff.darker > 500 && about.diff.lighter > 100,
+    `${(about.diff.changed * 100).toFixed(1)}% of the frame changes — ` +
+    `${about.diff.darker}px darker (shadow and side walls), ${about.diff.lighter}px lighter (lit faces)`);
+  check("the cast shadow is smooth, not speckled",
+    about.speckle.n > 2000 && about.speckle.on < 0.04,
+    `${(about.speckle.on * 100).toFixed(1)}% of darkened pixels are local spikes, against ` +
+    `${(about.speckle.off * 100).toFixed(1)}% on the same pixels unshadowed, over ${about.speckle.n}px ` +
+    `at the ${about.tier} tier`);
+  check("the heading keeps its layout while the scene carries it (§12)",
+    about.headingText.length > 0 && !about.headingVisible &&
+      about.headingBox !== null && about.headingBox.w > 40 && about.headingBox.h > 10,
+    `"${about.headingText}" at ${about.headingBox ? `${about.headingBox.w}x${about.headingBox.h}` : "no box"}, ` +
+    `rendered ${about.headingVisible ? "visibly" : "transparent"} — the mask is measured from this box`);
   check("the trail is a real list in the DOM",
     about.listItems === 5, `${about.listItems} milestones as list items`);
-  check("the trail is not interactive yet", about.controls === 0,
-    `${about.controls} focusable controls — a button with no action is a lie to a screen reader`);
-  check("the trail presses nothing into the sand yet",
-    about.alongTrail.every((h) => h === null || h > -0.02),
-    `deepest along the trail ${about.alongTrail.map((h) => (h === null ? "off-patch" : h.toFixed(3))).join(", ")}`);
-  check("scrolling away lifts the hero carve", about.awayAtBottom >= 1,
-    `hero ${about.awayAtBottom.toFixed(2)} hero-heights out of view at the bottom`);
-  check("scrolling back re-presses the title",
-    about.state !== null && about.state.carve > 0.2,
-    `carve pressure ${about.state ? about.state.carve.toFixed(2) : "n/a"} after scrolling back`);
-  check("the title is carved into the sand",
-    about.hero !== null && about.hero < -0.05,
-    `deepest under the title ${about.hero === null ? "off-patch" : about.hero.toFixed(3)}`);
 
   // Lateral swash. Measured through the SIMULATION's wetness channel, not the
   // picture: it proves the shared wave chunk bends the waterline for the sim

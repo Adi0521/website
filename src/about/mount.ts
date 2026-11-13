@@ -1,77 +1,74 @@
 /**
- * Binds the About DOM to the sand — PRD §8.1.
+ * Binds the About DOM to the scene — PRD §8.1.
  *
- * This is the only place the scene reaches into the document, and it is
- * deliberately one-way: the DOM is the source of truth for what the title
- * says, and the sand reacts to it. §12 requires the page to stand as real text
- * with the canvas removed, so nothing here generates content.
+ * One-way, deliberately: the <h1> is the source of truth for what the name says
+ * and how big it is, and the sculpture is rasterized from it. §12 requires the
+ * page to stand as real text with the canvas removed, so nothing here generates
+ * content — the heading IS the content, and the scene is measured off it.
  *
- * Today that is the hero carve alone. §8.2's footprint trail is content-only
- * until the hover work — see src/about/milestones.ts for why building it now
- * would reintroduce a bug rather than a feature.
- *
- * Mounted and unmounted by the router, because About's DOM does not exist on a
- * focus page. The carve keeps its state across that, so navigating away and
- * back does not re-run the load envelope — §10's continuity argument applied
- * to the title.
+ * §8.2's footprint trail stays content-only until the hover work; see
+ * src/about/milestones.ts for why building it now would reintroduce a bug
+ * rather than a feature.
  */
 
 import type { Beach } from "../beach";
-import { HeroCarve } from "./hero";
+import { HeroName, DEFAULT_HERO } from "./hero";
+import { beachHeight } from "../sand/params";
 
 export class AboutStations {
-  private readonly hero: HeroCarve;
+  private readonly hero: HeroName;
   private detach: (() => void) | null = null;
   /** True while About's DOM is in the document. */
   private live = false;
-  /** How far the hero has scrolled out of view, 0..1. */
-  private away = 0;
-  /** The same, as of the previous frame, so re-entry is detected as an edge. */
-  private prevAway = 0;
+  /** The heading the mask is built from, while it is in the document. */
+  private el: HTMLElement | null = null;
+  /** Set when the element had no layout yet, so the build has to be retried. */
+  private pending = false;
 
   constructor(private readonly beach: Beach) {
-    this.hero = new HeroCarve(beach.gl);
+    this.hero = new HeroName(beach.gl);
     // Installed for the life of the session and goes quiet when About is not
-    // mounted. Installing and removing it on every navigation would mean the
-    // field could take a stamp from a station already torn down, one frame on.
-    beach.maskStamp = () => (this.live ? this.hero.stamp() : null);
+    // mounted. Installing and removing it per navigation would let the renderer
+    // read a prop from a station already torn down, one frame later.
+    beach.textProp = () => (this.hero.ready ? this.hero.prop() : null);
   }
 
   /**
    * Called by the router once About's DOM is in the document.
    *
    * Re-binding rather than binding once: the router replaces `#app` wholesale
-   * on every navigation, so the elements this measures are new each time.
+   * on every navigation, so the element measured here is a new one each time.
    */
   mount(container: HTMLElement): void {
     this.unbind();
     this.live = true;
+    this.el = container.querySelector<HTMLElement>("[data-carve]");
+    this.pending = true;
+    this.rebuild();
 
-    const title = container.querySelector<HTMLElement>("[data-carve]");
-    if (title && title.textContent) {
-      const text = title.textContent.trim();
-      // Only re-rasterize when the string actually changed. Re-arming on every
-      // return to About would restart the press envelope and re-carve a title
-      // already sitting in the sand.
-      if (!this.hero.armed || this.hero.label !== text) {
-        void this.hero.arm(text);
-      }
-    }
-
-    const hero = container.querySelector<HTMLElement>(".hero");
-    const onScroll = () => this.readScroll(hero);
-    addEventListener("scroll", onScroll, { passive: true });
-    addEventListener("resize", onScroll);
-    this.readScroll(hero);
-    this.detach = () => {
-      removeEventListener("scroll", onScroll);
-      removeEventListener("resize", onScroll);
+    // Rebuilt on resize, because the heading is `clamp(2.5rem, 9vw, 6rem)` —
+    // its size is a function of the viewport, so the sculpture has to be too,
+    // or the name stops matching the element it was measured from.
+    const onResize = () => {
+      this.pending = true;
     };
+    addEventListener("resize", onResize);
+    this.detach = () => removeEventListener("resize", onResize);
+
+    // Fonts arriving late change the metrics under us. §5 fixes the display
+    // face as Mattone, and a mask rasterized before it loads is the fallback
+    // face standing in the scene — permanently, since nothing rebuilds it.
+    if ("fonts" in document) {
+      void document.fonts.ready.then(() => {
+        this.pending = true;
+      });
+    }
   }
 
   /** Called by the router before About's DOM is replaced. */
   unmount(): void {
     this.live = false;
+    this.el = null;
     this.unbind();
   }
 
@@ -81,51 +78,38 @@ export class AboutStations {
   }
 
   /**
-   * How far the hero has scrolled out of view, as a fraction of its own
-   * height.
+   * Rasterizes the mask, if the element has a box to measure yet.
    *
-   * Measured off the hero element rather than off the document, so it does not
-   * silently change meaning when a section is added below. It is also NOT the
-   * number the scroll camera uses: that one is normalised over the whole page
-   * because it maps the whole journey up the beach (see scroll.ts), while this
-   * is local to one section.
+   * A heading with no layout is a real state during a route change rather than
+   * an error — `offsetWidth` is 0 until the browser has laid the new DOM out —
+   * so this leaves `pending` set and the frame loop tries again.
    */
-  private readScroll(hero: HTMLElement | null): void {
-    if (!hero) {
-      this.away = 0;
-      return;
-    }
-    const rect = hero.getBoundingClientRect();
-    // 0 while the hero's top is at or below the viewport top; 1 once a full
-    // hero-height has passed above it.
-    this.away = Math.min(1, Math.max(0, -rect.top / Math.max(rect.height, 1)));
+  private rebuild(): void {
+    if (!this.live || !this.el) return;
+    const sand = beachHeight(DEFAULT_HERO.z, this.beach.config.water);
+    if (this.hero.build(this.el, sand)) this.pending = false;
   }
 
   /**
-   * Advances the carve. Driven from `Beach.onFrame`, so it runs on the same
-   * clock as the camera and gets real elapsed seconds rather than the clamped
-   * simulation dt.
+   * Driven from `Beach.onFrame`, so it runs on the same clock as the camera.
+   *
+   * The only per-frame work is turning the quad to face the viewer. The mask
+   * itself is rebuilt only when something it was measured from has changed.
    */
-  update(dt: number): void {
+  update(): void {
     if (!this.live) return;
-    // Scrolling back re-presses (§8.1). Restarted on the EDGE back into view,
-    // not while the hero is merely visible — re-arming every frame would pin
-    // the envelope at its attack and the title would never reach the hold, let
-    // alone erode out of it.
-    if (this.prevAway >= 1 && this.away < 1) this.hero.rearm();
-    this.prevAway = this.away;
-    this.hero.setAway(this.away);
-    this.hero.update(dt);
+    if (this.pending) this.rebuild();
+    if (this.hero.ready) this.hero.orient(this.beach.basis);
   }
 
   /** Diagnostics for the smoke test. */
-  get state(): { carve: number; away: number } {
-    return { carve: this.hero.pressure, away: this.away };
+  get state(): { ready: boolean; label: string } {
+    return { ready: this.hero.ready, label: this.hero.label };
   }
 
   dispose(): void {
     this.unbind();
     this.hero.dispose();
-    this.beach.maskStamp = null;
+    this.beach.textProp = null;
   }
 }
