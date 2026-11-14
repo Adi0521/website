@@ -36,17 +36,24 @@ float xfer(float hC, float hN, float thr){
 // coverage of the text mask at a world position, 0 outside its rect. the rect
 // test is what keeps the title local: without it CLAMP_TO_EDGE would smear the
 // mask's border row along the entire beach.
-float maskAt(vec2 wxz){
-  if(uMaskPress <= 0.0) return 0.0;
+//
+// returns coverage in x and the depth scale in y. the scale rides in GREEN as a
+// fraction of RED, so a mask can press some marks shallower than others — the
+// footprint trail's older prints (§8.2). green is filled in the same colour as
+// red and blurred with it, so g/r holds right out into the rim; a plain white
+// mask has g == r and keeps full depth.
+vec2 maskAt(vec2 wxz){
+  if(uMaskPress <= 0.0) return vec2(0.0);
   vec2 m = (wxz - uMaskRect.xy)/(2.0*uMaskRect.zw) + 0.5;
-  if(any(lessThan(m, vec2(0.0))) || any(greaterThan(m, vec2(1.0)))) return 0.0;
+  if(any(lessThan(m, vec2(0.0))) || any(greaterThan(m, vec2(1.0)))) return vec2(0.0);
   // textureLod, not texture. the rect test above returns per texel, so this
   // fetch is inside NON-UNIFORM control flow, and an implicit-LOD fetch there
   // has undefined derivatives by spec. it happens to work because the mask has
   // no mipmaps and the lod is therefore always 0 — which is exactly the kind of
   // undefined-but-fine that holds until it meets an untested driver, and §11's
   // low-end tier is still unmeasured. stating the lod costs nothing.
-  return textureLod(uMask, m, 0.0).r;
+  vec2 rg = textureLod(uMask, m, 0.0).rg;
+  return vec2(rg.r, clamp(rg.g/max(rg.r, 1e-3), 0.0, 1.0));
 }
 void main(){
   // where this texel's world position sat in the previous field. the shift is
@@ -80,7 +87,9 @@ void main(){
   // outline, because pressed sand pushes up at the edge and not inside the
   // letter (§6.4). a hard-edged mask instead carves a cliff, and slumping
   // tears it straight back down into a ridge of noise.
-  float mv    = maskAt(wxz);
+  vec2  mrg   = maskAt(wxz);
+  float mv    = mrg.x;
+  float mDepth = uMaskDepth*mrg.y;
   float mCore = smoothstep(0.55, 0.88, mv);
   float mRing = smoothstep(0.06, 0.34, mv)*(1.0 - smoothstep(0.34, 0.62, mv));
 
@@ -163,9 +172,10 @@ void main(){
   // one depth. both are target-based mixes, so applying them in turn is still
   // idempotent under a held press.
   float km = clamp(uMaskPress*uDt*30.0, 0.0, 1.0);
-  h = mix(h, min(h, -uMaskDepth*mCore),            km*mCore);
-  h = mix(h, max(h,  uMaskDepth*uMaskRim*mRing),   km*mRing*(1.0-mCore));
-  dst = max(dst, min(1.0, uMaskPress*(mCore + mRing*0.7)));
+  h = mix(h, min(h, -mDepth*mCore),            km*mCore);
+  h = mix(h, max(h,  mDepth*uMaskRim*mRing),   km*mRing*(1.0-mCore));
+  // older, shallower marks also read as less freshly disturbed
+  dst = max(dst, min(1.0, uMaskPress*mrg.y*(mCore + mRing*0.7)));
 
   outC = vec4(clamp(h,-1.0,1.0), clamp(dst,0.0,1.0), clamp(wet,0.0,1.0), age);
 }

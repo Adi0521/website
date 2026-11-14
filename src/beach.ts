@@ -11,6 +11,7 @@
 import type { Brush } from "./agents/types";
 import type { MaskStamp } from "./sand/mask";
 import type { TextProp } from "./about/hero";
+import type { SignProp } from "./about/sign";
 import { createContext, GLUnsupported } from "./gl/context";
 import { bindFullscreenTriangle, ShaderError } from "./gl/program";
 import { cameraBasis, groundHit, type CameraState } from "./gl/camera";
@@ -191,6 +192,9 @@ export class Beach {
    */
   textProp: (() => TextProp | null) | null = null;
 
+  /** The timeline signpost (§8.2). Geometry, like the name — not a mark. */
+  signProp: (() => SignProp | null) | null = null;
+
   /**
    * The camera with the pull applied. Derived rather than written back, because
    * `camera` belongs to the scroll driver — mutating it here would make the
@@ -357,6 +361,7 @@ export class Beach {
     this.renderer.render(
       this.field, this.pushedCamera(), this.config, this.waves, this.time,
       this.cursor(), this.view, this.focus, this.textProp?.() ?? null,
+      this.signProp?.() ?? null,
     );
   }
 
@@ -462,6 +467,7 @@ export class Beach {
     this.renderer.render(
       this.field, this.pushedCamera(), this.config, this.waves, this.time,
       this.cursor(), this.view, this.focus, this.textProp?.() ?? null,
+      this.signProp?.() ?? null,
     );
 
   };

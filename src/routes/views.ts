@@ -42,9 +42,9 @@ const home: RouteDef = {
       </p>
     </section>
 
-    <!-- §8.2's timeline, as content. The footprint trail in the sand and the
-         hover-to-press-deeper behaviour land together with the rest of the
-         hover work — see src/about/milestones.ts.
+    <!-- §8.2's timeline, as content. The footprints in the sand are pressed by
+         src/about/trail.ts; the hover-to-press-deeper behaviour is not built
+         yet.
 
          Plain list items, NOT buttons. They were buttons while the sand
          responded to focus; with nothing to activate, a <button> announces an
@@ -64,15 +64,6 @@ const home: RouteDef = {
       </ol>
     </section>
 
-    <section class="plate">
-      <h2>Work</h2>
-      <ul class="index">
-        ${PROJECTS.map(
-          (p) => `<li><a href="/work/${p.slug}">${esc(p.title)}</a> — ${esc(p.summary)}</li>`,
-        ).join("")}
-      </ul>
-      <p><a href="/resume">Read the resume in full</a></p>
-    </section>
   `,
 };
 

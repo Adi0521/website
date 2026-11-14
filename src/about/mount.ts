@@ -6,19 +6,28 @@
  * page to stand as real text with the canvas removed, so nothing here generates
  * content — the heading IS the content, and the scene is measured off it.
  *
- * §8.2's footprint trail stays content-only until the hover work; see
- * src/about/milestones.ts for why building it now would reintroduce a bug
- * rather than a feature.
+ * §8.2's footprint trail is pressed into the sand as one mask stamp — see
+ * src/about/trail.ts for why that, and not the pointer's brush. The hover and
+ * scrub behaviour is not built yet; the list stays plain content until it is.
+ * The trail starts at a wooden signpost cut from the "Timeline" heading
+ * (src/about/sign.ts), the same one-way binding the name uses.
  */
 
 import type { Beach } from "../beach";
 import { HeroName, DEFAULT_HERO } from "./hero";
+import { FootprintTrail } from "./trail";
+import { TimelineSign, DEFAULT_SIGN } from "./sign";
+import { MILESTONES } from "./milestones";
 import { beachHeight } from "../sand/params";
 import { DEFAULT_SCROLL } from "../scroll";
 import { DEFAULT_CAMERA } from "../beach";
 
 export class AboutStations {
   private readonly hero: HeroName;
+  private readonly trail: FootprintTrail;
+  private readonly sign: TimelineSign;
+  /** The "Timeline" heading the sign's word is cut from. */
+  private signEl: HTMLElement | null = null;
   private detach: (() => void) | null = null;
   /** True while About's DOM is in the document. */
   private live = false;
@@ -33,6 +42,19 @@ export class AboutStations {
     // mounted. Installing and removing it per navigation would let the renderer
     // read a prop from a station already torn down, one frame later.
     beach.textProp = () => (this.hero.ready ? this.hero.prop() : null);
+
+    // The trail does not depend on the DOM, so it is built once. It presses
+    // only while About is mounted: off About the prints are left to the wind,
+    // and coming back presses them in again. (Focus pages suppress the mask
+    // anyway — see Beach — since §10 takes no new marks there.)
+    this.trail = new FootprintTrail(beach.gl);
+    this.trail.build(MILESTONES);
+    beach.maskStamp = () => (this.live ? this.trail.stamp() : null);
+
+    // Like the name, the sign stays put across navigation (it is part of the
+    // scene, not a mark), and is rebuilt from the heading on each mount.
+    this.sign = new TimelineSign(beach.gl);
+    beach.signProp = () => (this.sign.ready ? this.sign.prop() : null);
   }
 
   /**
@@ -45,6 +67,7 @@ export class AboutStations {
     this.unbind();
     this.live = true;
     this.el = container.querySelector<HTMLElement>("[data-carve]");
+    this.signEl = container.querySelector<HTMLElement>("#timeline-h");
     this.pending = true;
     this.rebuild();
 
@@ -71,6 +94,7 @@ export class AboutStations {
   unmount(): void {
     this.live = false;
     this.el = null;
+    this.signEl = null;
     this.unbind();
   }
 
@@ -90,6 +114,9 @@ export class AboutStations {
     if (!this.live || !this.el) return;
     const water = this.beach.config.water;
     const sand = beachHeight(DEFAULT_HERO.z, water);
+    // The sign has no layout dependency, only a font one, so it is simply
+    // rebuilt whenever the name is.
+    this.sign.build(this.signEl, beachHeight(DEFAULT_SIGN.z, water));
     if (this.hero.build(this.el, sand, water.seaLevel, aimX(DEFAULT_HERO.z))) this.pending = false;
   }
 
@@ -113,7 +140,11 @@ export class AboutStations {
   dispose(): void {
     this.unbind();
     this.hero.dispose();
+    this.trail.dispose();
+    this.sign.dispose();
     this.beach.textProp = null;
+    this.beach.signProp = null;
+    this.beach.maskStamp = null;
   }
 }
 

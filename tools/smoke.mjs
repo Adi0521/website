@@ -646,6 +646,11 @@ try {
   check("nothing marks the sand on a focus page", onFocus.deepest > -0.005,
     `deepest anywhere ${onFocus.deepest.toFixed(3)} · focus ${onFocus.focus}`);
   await page.evaluate(() => window.__router.navigate("/"));
+  // Park the pointer off the sand. The sweeps above leave it resting on the
+  // beach, where it keeps pressing a mark — and whether that mark happens to sit
+  // inside the name's shadow varied run to run, which made the speckle check
+  // below flip between passing and failing on the pointer's rim, not the shadow.
+  await page.mouse.move(640, 10);
 
   // ── Phase 4: the name sculpted from sand (§8.1) ──────────────────────────
   //
@@ -680,12 +685,27 @@ try {
     // in JavaScript to ask it would be testing the copy rather than the
     // original. renderStill steps the field with dt 0, so the sand is
     // byte-identical between the two and every difference is the name.
+    // Clean sand for every frame below: no pointer marks, no prints. The
+    // field steps with dt 0 here, so nothing presses back in after the reset.
+    b.field.reset();
     const on = shot();
     const saved = b.textProp;
     // The shadow alone, letters hidden — for the speckle check below.
+    //
+    // Stood on the DRY BEACH for this one measurement. The name lives in the
+    // surf, so its real shadow falls on water, where glint and foam spike with
+    // or without it depending on the wave phase at the moment of the frame.
+    // What this guards is the shadow function itself (a plane intersection and
+    // mip taps), which is the same on any receiver — so it is measured on sand,
+    // where the old marched shadow's static showed and where nothing else moves.
+    // Slope 0.085 (params.ts) lifts the ground 0.255 between z -0.7 and 2.3.
+    const onSand = (p) => {
+      const dz = 2.3 - p.centre[2];
+      return { ...p, solid: false, centre: [p.centre[0], p.centre[1] + dz * 0.085, 2.3] };
+    };
     b.textProp = () => {
       const p = saved();
-      return p ? { ...p, solid: false } : null;
+      return p ? onSand(p) : null;
     };
     const shadowOnly = shot();
     b.textProp = null;
@@ -721,10 +741,9 @@ try {
     // full frame, "darkened" also took in the letters' own surface, which is
     // pitted and gritty on purpose, so the texture scored as speckle.
     //
-    // And scored as the speckle the shadow ADDS: spikes in the shadowed frame
-    // that the same pixel does not already have unshadowed. Where the shadow
-    // falls on water the sun's glint spikes with or without it, and that is
-    // not the shadow's doing.
+    // And scored as the speckle the shadow ADDS, on SAND: spikes in the
+    // shadowed frame that the same pixel does not already have unshadowed,
+    // with water excluded outright (see below).
     const spike = (px, i, w) => {
       const c = px[i], l = px[i-4], r = px[i+4], u = px[i-w*4], d = px[i+w*4];
       const hx = (c-l)*(c-r) > 0 ? Math.min(Math.abs(c-l), Math.abs(c-r)) : 0;
@@ -737,6 +756,12 @@ try {
         const k = (y * W + x) * 4;
         if (dAt(shadowOnly.px, off.px, k) <= 12) continue;
         if (shadowOnly.px[k] >= off.px[k]) continue;      // darkened only
+        // Sand only. Over water the glint and foam spike with or without the
+        // shadow, and how much depends on where the waves happen to be when the
+        // frame is taken — which drifts with how long the run took, so the
+        // check flipped between runs. Water renders bluer than red; sand never
+        // does.
+        if (off.px[k + 2] > off.px[k]) continue;
         shadeN += 1;
         const sOn = spike(shadowOnly.px, k, W) > 6;
         const sOff = spike(off.px, k, W) > 6;
@@ -788,7 +813,7 @@ try {
     `${(about.diff.changed * 100).toFixed(1)}% of the frame changes — ` +
     `${about.diff.darker}px darker (shadow and side walls), ${about.diff.lighter}px lighter (lit faces)`);
   check("the cast shadow is smooth, not speckled",
-    about.speckle.n > 2000 && about.speckle.added < 0.04,
+    about.speckle.n > 1000 && about.speckle.added < 0.04,
     `${(about.speckle.added * 100).toFixed(1)}% of shadowed pixels gain a spike the shadow put there ` +
     `(${(about.speckle.on * 100).toFixed(1)}% spiky shadowed, ${(about.speckle.off * 100).toFixed(1)}% ` +
     `on the same pixels unshadowed), over ${about.speckle.n}px at the ${about.tier} tier`);

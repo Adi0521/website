@@ -122,16 +122,23 @@
 
 /* ── the footprint trail (§8.2) ───────────────────────────────────────────── */
 
-/* One milestone per screenful, which is what sets the trail's spacing in the
-   sand: the camera travels 2.0→7.6 across About's whole scroll, so a
-   milestone every ~85vh lands roughly on the ~1.4 world units between prints.
-   Change one and the other stops lining up. */
+/* Two screenfuls per milestone. The camera travels 2.0→7.6 across About's
+   whole scroll, so this sets how slowly the beach goes by, not where the
+   prints are: each milestone still arrives with its print, just at half the
+   pace it did at 85vh. */
 #timeline { max-width: var(--measure); padding: 0 clamp(1rem, 4vw, 3rem); }
 #timeline > h2 { color: var(--foam); text-shadow: 0 1px 24px color-mix(in srgb, var(--ink) 60%, transparent); }
+/* The word is cut into the signpost in the scene (src/about/sign.ts), so the
+   heading goes transparent for the same reasons the hero's does: kept laid
+   out and readable, back the moment the scene cannot carry it. */
+:root:not([data-scene="off"]) #timeline > h2 { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-scene="off"]) #timeline > h2 { opacity: 1; }
+}
 :root[data-scene="off"] #timeline > h2 { color: var(--ink); text-shadow: none; }
 
 .trail { list-style: none; margin: 0; padding: 0; }
-.trail li { min-height: 85vh; display: flex; align-items: center; }
+.trail li { min-height: 170vh; display: flex; align-items: center; }
 
 /* Text over the live scene, so it needs the same lift the hero copy gets.
    Deliberately NOT pointer-events: auto — nothing here is interactive yet, and
@@ -193,7 +200,7 @@ a { color: var(--sea-deep); }
   .plate { animation: none; }
   #nav { transition: none; }
   /* §12: the slideshow becomes a list, and so does the trail. With no camera
-     travelling past them the milestones have to stand on their own, and 85vh
+     travelling past them the milestones have to stand on their own, and 170vh
      of air between them is a scroll through nothing. */
   .trail li { min-height: 0; }
 }

@@ -39,6 +39,7 @@ float fbm2(vec2 p){
 
 // after the noise helpers: the name's crumble and texture are built from them
 #include "common/text.glsl";
+#include "common/sign.glsl";
 
 // the interactive patch travels with the camera, so its uv is relative to
 // uOrigin. the baked layer does not travel — it is locked to the world and
@@ -125,7 +126,10 @@ void main(){
 
   vec3 col;
   float tTex; vec3 nTex;
-  bool gotTex = textSolid(ro, rd, tHit > 0.0 ? tHit : 1.0e9, tTex, nTex);
+  float tSign, signPart; vec3 nSign;
+  bool gotSign = signHit(ro, rd, tHit > 0.0 ? tHit : 1.0e9, tSign, nSign, signPart);
+  // Whichever stands nearer wins: the name's march is cut off at the sign.
+  bool gotTex = textSolid(ro, rd, gotSign ? tSign : (tHit > 0.0 ? tHit : 1.0e9), tTex, nTex);
 
   if(gotTex){
     // ------------------------------------------------- the name in sand --
@@ -164,6 +168,29 @@ void main(){
     col += SUN_RIM*pow(gs,22.0)*pow(nh,7.0)*sh*uSparkle*0.6/(1.0 + tTex*1.6);
     if(uView == 2) col = N*0.5 + 0.5;
     if(uView == 0) col = mix(col, skyCol(rd, L), 1.0 - exp(-tTex*uFog));
+  } else if(gotSign){
+    // ------------------------------------------------- the signpost --
+    vec3 p = ro + rd*tSign;
+    vec3 lp = signLocal(p);
+    vec3 nl = signDir(nSign);
+    float cut;
+    vec3 albedo = signAlbedo(lp, nl, signPart, tSign, cut);
+    vec3 N = nSign;
+    float ndl = max(dot(N,L), 0.0);
+    // The ground's shadow, and the board's on the post (and vice versa).
+    float sh = sunShadow(p.xz, p.y, L);
+    sh = min(sh, 1.0 - signShadow(p + N*0.004, L));
+    sh = min(sh, 1.0 - textShadow(p, L));
+    vec3 direct  = SUN_RIM*ndl*sh*uExposure/max(sin(uSunEl), 0.10);
+    vec3 ambient = SAND_SHADOW*(0.40 + 0.60*max(N.y,0.0))*uSky*(1.0 - cut*0.5);
+    vec3 bounce  = SAND_LIT*uSky*0.28*(0.35 + 0.65*max(-N.y,0.0));
+    // A carved groove takes less of the sun than the face around it.
+    col = albedo*(direct*(1.0 - cut*0.45) + ambient + bounce);
+    vec3 Vv = normalize(ro - p);
+    float nh = max(dot(N, normalize(L + Vv)), 0.0);
+    col += SUN_RIM*pow(nh, 24.0)*0.03*sh*(1.0 - cut);
+    if(uView == 2) col = N*0.5 + 0.5;
+    if(uView == 0) col = mix(col, skyCol(rd, L), 1.0 - exp(-tSign*uFog));
   } else if(tHit < 0.0){
     col = skyCol(rd, L);
   } else {
@@ -243,6 +270,7 @@ void main(){
       // nothing to alias into speckle.
       float sh = sunShadow(p.xz, p.y, L);
       sh = min(sh, 1.0 - textShadow(p, L));
+      sh = min(sh, 1.0 - signShadow(p, L));
 
       float wide = heightAt(p.xz + vec2( 7.0*ew,0.0))
                  + heightAt(p.xz + vec2(-7.0*ew,0.0))
@@ -252,6 +280,7 @@ void main(){
       // Sky the slab blocks from straight overhead. Only bites once the quad
       // leans far enough to sit over the sand at all.
       ao *= 1.0 - textAO(p)*0.42;
+      ao *= 1.0 - signFoot(p)*0.45;
 
       float grain = texture(uStatic, s2uv(p.xz)).g;
       vec3 albedo = SAND_LIT*(0.93 + 0.14*grain);

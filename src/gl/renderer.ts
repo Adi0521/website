@@ -23,6 +23,7 @@ import compositeSrc from "./shaders/composite.frag";
 
 export type { TextProp } from "../about/hero";
 import type { TextProp } from "../about/hero";
+import type { SignProp } from "../about/sign";
 
 export interface CursorState {
   /** World XZ of the ring. */
@@ -81,6 +82,7 @@ export class BeachRenderer {
     view: DebugView,
     focus = 0,
     text: TextProp | null = null,
+    sign: SignProp | null = null,
   ): void {
     if (!field.ready) return;
     const gl = this.gl;
@@ -159,6 +161,20 @@ export class BeachRenderer {
       this.prog.f("uTextStr", text.strength);
       this.prog.f("uTextCrumble", text.crumble);
       this.prog.f("uTextTexture", text.relief);
+    }
+
+    // The timeline signpost (§8.2). Same rule as the name's sampler: bound
+    // every frame so an unset unit never aliases the sand field.
+    this.prog.tex("uSignTex", 3, sign?.texture ?? field.staticTexture);
+    this.prog.f("uSignOn", sign ? 1 : 0);
+    if (sign) {
+      this.prog.f3("uSignC", sign.foot[0], sign.foot[1], sign.foot[2]);
+      this.prog.f3("uSignR", sign.right[0], sign.right[1], sign.right[2]);
+      this.prog.f3("uSignU", sign.up[0], sign.up[1], sign.up[2]);
+      this.prog.f3("uSignN", sign.normal[0], sign.normal[1], sign.normal[2]);
+      this.prog.f4("uSignBoard", sign.board[0], sign.board[1], sign.board[2], sign.board[3]);
+      this.prog.f3("uSignPost", sign.post[0], sign.post[1], sign.post[2]);
+      this.prog.f("uSignPx", Math.max(sign.px, 1));
     }
 
     drawFullscreen(gl);
