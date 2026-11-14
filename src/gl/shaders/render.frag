@@ -173,8 +173,8 @@ void main(){
     vec3 p = ro + rd*tSign;
     vec3 lp = signLocal(p);
     vec3 nl = signDir(nSign);
-    float cut;
-    vec3 albedo = signAlbedo(lp, nl, signPart, tSign, cut);
+    float paint;
+    vec3 albedo = signAlbedo(lp, nl, signPart, tSign, paint);
     vec3 N = nSign;
     float ndl = max(dot(N,L), 0.0);
     // The ground's shadow, and the board's on the post (and vice versa).
@@ -182,13 +182,12 @@ void main(){
     sh = min(sh, 1.0 - signShadow(p + N*0.004, L));
     sh = min(sh, 1.0 - textShadow(p, L));
     vec3 direct  = SUN_RIM*ndl*sh*uExposure/max(sin(uSunEl), 0.10);
-    vec3 ambient = SAND_SHADOW*(0.40 + 0.60*max(N.y,0.0))*uSky*(1.0 - cut*0.5);
+    vec3 ambient = SAND_SHADOW*(0.40 + 0.60*max(N.y,0.0))*uSky;
     vec3 bounce  = SAND_LIT*uSky*0.28*(0.35 + 0.65*max(-N.y,0.0));
-    // A carved groove takes less of the sun than the face around it.
-    col = albedo*(direct*(1.0 - cut*0.45) + ambient + bounce);
+    col = albedo*(direct + ambient + bounce);
     vec3 Vv = normalize(ro - p);
     float nh = max(dot(N, normalize(L + Vv)), 0.0);
-    col += SUN_RIM*pow(nh, 24.0)*0.03*sh*(1.0 - cut);
+    col += SUN_RIM*pow(nh, 24.0)*0.03*sh*(1.0 - paint);   // old paint is matte
     if(uView == 2) col = N*0.5 + 0.5;
     if(uView == 0) col = mix(col, skyCol(rd, L), 1.0 - exp(-tSign*uFog));
   } else if(tHit < 0.0){

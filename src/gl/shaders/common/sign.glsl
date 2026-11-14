@@ -53,6 +53,28 @@ bool signBox(vec3 o, vec3 d, vec3 c, vec3 e, out float tn, out vec3 n){
   return true;
 }
 
+/**
+ * Is this point of the board's outline broken away? Weathered boards are
+ * chipped along their edges and rounded off at the corners. Tested on the
+ * board's local xy, so a chip goes through the full thickness.
+ *
+ * Still not marching: the box is hit analytically and the hit is simply
+ * refused where the board has chipped away, so the ray carries on to the post
+ * or the sand behind it.
+ */
+bool signChipped(vec2 xy){
+  vec2 q = vec2(uSignBoard.x - abs(xy.x), uSignBoard.y - abs(xy.y - uSignBoard.w));
+  // Bites along the long edges (keyed on x) and the short ones (keyed on y).
+  float sx = xy.y > uSignBoard.w ? 3.1 : 8.7;
+  float sy = xy.x > 0.0 ? 5.3 : 11.9;
+  float biteTB = 0.002 + 0.006*vn2(vec2(xy.x*70.0, sx)) + 0.016*smoothstep(0.72, 0.92, vn2(vec2(xy.x*9.0, sx + 2.0)));
+  float biteLR = 0.002 + 0.006*vn2(vec2(xy.y*70.0, sy)) + 0.012*smoothstep(0.70, 0.92, vn2(vec2(xy.y*14.0, sy + 2.0)));
+  // Corners worn round, unevenly.
+  float r = 0.012 + 0.014*vn2(sign(xy)*3.7);
+  vec2 c = max(vec2(r) - q, 0.0);
+  return q.y < biteTB || q.x < biteLR || length(c) > r;
+}
+
 /** part: 0 board, 1 post. Normal is in WORLD space. */
 bool signHit(vec3 ro, vec3 rd, float maxT, out float tOut, out vec3 nOut, out float part){
   tOut = 0.0; nOut = vec3(0.0,1.0,0.0); part = 0.0;
@@ -61,6 +83,7 @@ bool signHit(vec3 ro, vec3 rd, float maxT, out float tOut, out vec3 nOut, out fl
   vec3 bc, be, pc, pe; signBoxes(bc, be, pc, pe);
   float tb, tp; vec3 nb, np;
   bool hb = signBox(o, d, bc, be, tb, nb);
+  if(hb && signChipped((o + d*tb).xy)) hb = false;
   bool hp = signBox(o, d, pc, pe, tp, np);
   if(hb && (!hp || tb < tp)){ tOut = tb; nOut = signWorldDir(nb); part = 0.0; }
   else if(hp){ tOut = tp; nOut = signWorldDir(np); part = 1.0; }
@@ -121,38 +144,74 @@ float signLetters(vec3 lp, float t){
 }
 
 /**
- * Weathered driftwood-grey wood: grain streaks along the timber, a plank seam
- * across the board, and the word cut in and darkened. Returns albedo; `dark`
- * says how far into a cut the point is, for the caller's ambient.
+ * Silvered, weathered timber: grey where the sun has bleached it, brown left
+ * only down in the grain, split along the grain, grimy at the edges and damp
+ * at the foot. The word is brushed on in chalky white house paint that has
+ * faded and flaked off along the grain. Rusty nails hold the board to the post.
+ *
+ * Returns albedo; `paint` is how much paint is on this point.
  */
-vec3 signAlbedo(vec3 lp, vec3 nl, float part, float t, out float cut){
-  cut = 0.0;
+vec3 signAlbedo(vec3 lp, vec3 nl, float part, float t, out float paint){
+  paint = 0.0;
   // Grain runs along the board's length and up the post.
   float along  = part < 0.5 ? lp.x : lp.y;
   float across = part < 0.5 ? lp.y + lp.z*0.7 : lp.x + lp.z;
+  float fade = 1.0/(1.0 + t*0.5);
   float warp = vn2(vec2(along*3.0, across*11.0))*2.0;
   float streak = vn2(vec2(along*5.0 + warp, across*170.0 + warp*3.0));
   float fine   = vn2(vec2(along*22.0, across*520.0));
   float blotch = vn2(lp.xy*7.0 + part*13.0);
-  // Darker than the sand it stands in, or under this sun it reads as paper.
-  vec3 bleached = vec3(0.40,0.36,0.31);
-  vec3 brown    = vec3(0.30,0.21,0.14);
-  vec3 a = mix(bleached, brown, 0.30 + 0.50*blotch);
-  float fade = 1.0/(1.0 + t*0.5);
-  a *= 0.70 + 0.50*mix(0.5, streak, fade) + 0.14*mix(0.5, fine, fade);
+  // Dark enough that the white paint stands off it under a low, bright sun.
+  vec3 silver = vec3(0.27,0.27,0.26);
+  vec3 brown  = vec3(0.21,0.16,0.11);
+  vec3 a = mix(silver, brown, 0.10 + 0.55*blotch*streak);
+  a *= 0.70 + 0.46*mix(0.5, streak, fade) + 0.14*mix(0.5, fine, fade);
+
+  // Checks: thin dark splits running with the grain.
+  float ck = vn2(vec2(along*2.2 + part*5.0, across*55.0));
+  float check = (1.0 - smoothstep(0.0, 0.035, abs(ck - 0.5)))
+              * smoothstep(0.45, 0.75, vn2(vec2(along*6.0, across*9.0 + 1.7)));
+  a *= 1.0 - 0.65*check*fade;
 
   if(part < 0.5){
+    // Grime toward the edges, and a water stain wicking up from the bottom.
+    float ex = uSignBoard.x - abs(lp.x), ey = uSignBoard.y - abs(lp.y - uSignBoard.w);
+    float edge = 1.0 - smoothstep(0.0, 0.03, min(ex, ey));
+    float low = 1.0 - smoothstep(-uSignBoard.y, uSignBoard.y*0.4, lp.y - uSignBoard.w);
+    a *= 1.0 - 0.25*edge - 0.22*low*(0.5 + 0.5*vn2(lp.xy*25.0));
+
     // Two planks: a dark seam along the middle of the BACK only. On the front
     // it runs straight through the word, and from a distance reads as a
     // strikethrough.
     float seam = 1.0 - smoothstep(0.0025, 0.0055, abs(lp.y - uSignBoard.w));
     a *= 1.0 - 0.55*seam*step(0.5, -nl.z);
+
     if(nl.z > 0.5){
-      cut = signLetters(lp, t);
-      // Cut into the wood: the groove is in its own shadow, with a little
-      // of the raw, darker timber showing.
-      a = mix(a, vec3(0.09,0.06,0.045), cut*0.92);
+      // The brushed word. Paint lifts first along the raised grain, then in
+      // flakes, so the strokes break up the way old paint on wood does.
+      float m = signLetters(lp, t);
+      float flake = vn2(vec2(along*45.0, across*110.0))*0.6 + vn2(lp.xy*150.0)*0.4;
+      float keep = smoothstep(0.30, 0.46, flake + 0.22*(1.0 - streak));
+      paint = m*mix(0.55, 1.0, keep)*0.95;
+      vec3 chalk = vec3(0.86,0.83,0.76)*(0.88 + 0.12*vn2(lp.xy*60.0));
+      a = mix(a, chalk, paint);
+
+      // Two nails into the post, near the top and bottom edges so they keep
+      // out of the lettering, each bleeding a rust streak down the board.
+      for(int k=0;k<2;k++){
+        vec2 nail = vec2(0.0, uSignBoard.w + (k == 0 ? 1.0 : -1.0)*(uSignBoard.y - 0.011));
+        vec2 dn = lp.xy - nail;
+        float run = clamp(-dn.y/0.05, 0.0, 1.0);
+        float rust = (1.0 - smoothstep(0.002, 0.006 + 0.004*run, abs(dn.x + 0.002*sin(dn.y*300.0))))
+                   * step(dn.y, 0.0)*(1.0 - run)*(0.5 + 0.5*vn2(lp.xy*200.0));
+        a = mix(a, a*vec3(0.78,0.52,0.34), rust*0.8);
+        float head = 1.0 - smoothstep(0.0035, 0.005, length(dn));
+        a = mix(a, vec3(0.16,0.10,0.07), head);
+      }
     }
+  } else {
+    // The post is darker and damp where it goes into the sand.
+    a *= mix(0.55, 1.0, smoothstep(0.0, 0.12, lp.y));
   }
   return a;
 }

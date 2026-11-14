@@ -37,8 +37,10 @@ export interface TrailOptions {
   /** Foot length and width, world units. */
   footLength: number;
   footWidth: number;
-  /** Gap between the two feet of a pair, centre to centre, world units. */
+  /** Side-to-side gap between left and right prints, centre to centre. */
   stance: number;
+  /** How far one print is ahead of the other, along the trail. */
+  stride: number;
   /** Outward splay of each foot, radians. */
   splay: number;
   /** Press depth of the newest print, field units. Older ones scale down. */
@@ -57,7 +59,10 @@ export const DEFAULT_TRAIL: TrailOptions = {
   x: 0.3,
   footLength: 0.26,
   footWidth: 0.1,
-  stance: 0.17,
+  // A walking gait, one foot in front of the other: a narrow track, with
+  // each step about a stride ahead of the last.
+  stance: 0.11,
+  stride: 0.38,
   splay: 0.12,
   // Shallow, and soft-edged, on purpose. At 0.42 with a 2.5px blur the walls
   // ran ~35x steeper than the angle of repose: slumping tore them down every
@@ -94,7 +99,7 @@ export class FootprintTrail {
     const o = this.opts;
     const zs = milestones.map((m) => m.z);
     // Room round the outermost prints for the rim and the blur.
-    const margin = o.footLength;
+    const margin = o.footLength + o.stride / 2;
     const z0 = Math.min(...zs) - margin;
     const z1 = Math.max(...zs) + margin;
     const halfX = o.stance / 2 + o.footWidth + margin * 0.5;
@@ -127,9 +132,11 @@ export class FootprintTrail {
       // the print's depth right out into the rim.
       g.fillStyle = `rgb(255, ${Math.round(255 * depth)}, 0)`;
       g.filter = `blur(${soft}px)`;
-      // Right foot a little ahead of the left, as people stand.
-      this.foot(g, cx - off, cy + 0.03 * o.pxPerUnit, -o.splay, false);
-      this.foot(g, cx + off, cy - 0.03 * o.pxPerUnit, o.splay, true);
+      // Mid-stride: the left print, then the right one a stride ahead of it,
+      // toward the sea, which is the way the toes point.
+      const half = (o.stride / 2) * o.pxPerUnit;
+      this.foot(g, cx - off, cy + half, -o.splay, false);
+      this.foot(g, cx + off, cy - half, o.splay, true);
       g.filter = "none";
     });
 
