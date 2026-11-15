@@ -22,6 +22,10 @@ import { planCatchUp, MAX_DT } from "./sand/catchup";
 import { DOMAIN, DEFAULT_SAND, DebugView, type SandConfig } from "./sand/params";
 import { WaveScheduler, DEFAULT_WAVES } from "./waves/scheduler";
 
+
+/** How long the camera takes to fly in to a milestone scroll, or back out. */
+const ZOOM_SECONDS = 1.4;
+
 export interface BeachOptions {
   canvas: HTMLCanvasElement;
   config?: SandConfig;
@@ -235,20 +239,47 @@ export class Beach {
     const base = this.focus <= 0.001
       ? this.camera
       : { ...this.camera, distance: this.camera.distance * (1 - push * this.focus) };
-    const z = this.zoomView ? this.zoom * this.zoom * (3 - 2 * this.zoom) : 0;
-    if (z <= 0.0001 || !this.zoomView) return base;
+    if (this.zoom <= 0.0001 || !this.zoomView) return base;
     const v = this.zoomView;
-    const lerp = (a: number, b: number) => a + (b - a) * z;
-    // Shortest way round, so the glide never swings the long way.
-    let da = v.azimuth - base.azimuth;
-    da = Math.atan2(Math.sin(da), Math.cos(da));
+    // The flight in, built in world space rather than by blending the orbit's
+    // parameters. Blending those separately zoomed toward the middle of the
+    // screen first and then slid sideways onto the scroll from close up —
+    // where a small slide is a big lurch. Instead:
+    //   - the EYE flies a curve (a quadratic Bézier) that bends round to meet
+    //     the page square-on, so it arrives along the page's normal;
+    //   - the LOOK point swings onto the scroll early, so from the first
+    //     frames the camera is heading toward what it is going to read.
+    const smoother = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+    const u = smoother(this.zoom);
+    const lu = smoother(Math.min(1, this.zoom / 0.6));
+    const e0 = cameraBasis(base).ro;
+    const e1 = cameraBasis({ ...base, ...v }).ro;
+    const t0 = base.target;
+    const t1 = v.target;
+    // Control point out along the page's normal, half the flight's length
+    // back from the page: the curve leaves toward the scroll and finishes
+    // straight in.
+    const span = Math.hypot(e1[0] - e0[0], e1[1] - e0[1], e1[2] - e0[2]);
+    const nl = Math.hypot(e1[0] - t1[0], e1[1] - t1[1], e1[2] - t1[2]) || 1;
+    const c = [0, 1, 2].map((k) => e1[k]! + ((e1[k]! - t1[k]!) / nl) * span * 0.5);
+    const eye = [0, 1, 2].map(
+      (k) => (1 - u) * (1 - u) * e0[k]! + 2 * u * (1 - u) * c[k]! + u * u * e1[k]!,
+    );
+    const look: [number, number, number] = [
+      t0[0] + (t1[0] - t0[0]) * lu,
+      t0[1] + (t1[1] - t0[1]) * lu,
+      t0[2] + (t1[2] - t0[2]) * lu,
+    ];
+    // Back into the orbit form the renderer takes: any eye and look point is
+    // an orbit of the look point.
+    const d = [eye[0]! - look[0], eye[1]! - look[1], eye[2]! - look[2]];
+    const distance = Math.max(1e-3, Math.hypot(d[0]!, d[1]!, d[2]!));
     return {
       ...base,
-      target: [lerp(base.target[0], v.target[0]), lerp(base.target[1], v.target[1]), lerp(base.target[2], v.target[2])],
-      azimuth: base.azimuth + da * z,
-      elevation: lerp(base.elevation, v.elevation),
-      // In log space: a linear distance lerp rushes the last few centimetres.
-      distance: Math.exp(lerp(Math.log(base.distance), Math.log(v.distance))),
+      target: look,
+      azimuth: Math.atan2(d[2]!, d[0]!),
+      elevation: Math.asin(Math.max(-1, Math.min(1, d[1]! / distance))),
+      distance,
     };
   }
 
@@ -506,9 +537,12 @@ export class Beach {
     // Eased, and snapped once it is close enough that another frame would not
     // change a pixel — otherwise the loop never reaches the freeze below and
     // a focus page keeps rendering forever at zero visible benefit.
-    const zk = 1 - Math.exp(-2.6 * elapsed);
-    this.zoom += (this.zoomTarget - this.zoom) * zk;
-    if (Math.abs(this.zoom - this.zoomTarget) < 0.001) this.zoom = this.zoomTarget;
+    // A fixed-length flight, eased by the curve in pushedCamera — not an
+    // exponential approach, which lunges at the start and crawls at the end.
+    const step = elapsed / ZOOM_SECONDS;
+    this.zoom = this.zoomTarget > this.zoom
+      ? Math.min(this.zoomTarget, this.zoom + step)
+      : Math.max(this.zoomTarget, this.zoom - step);
     const fk = 1 - Math.exp(-FOCUS_RATE * elapsed);
     this.focus += (this.focusTarget - this.focus) * fk;
     if (Math.abs(this.focus - this.focusTarget) < 0.002) this.focus = this.focusTarget;
