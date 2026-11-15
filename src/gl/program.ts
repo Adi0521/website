@@ -65,6 +65,25 @@ export class Program {
     if (l) this.gl.uniform4f(l, x, y, z, w);
   }
 
+  /**
+   * Whole uniform arrays. The compiler reports an array under its first
+   * element's name ("uFoo[0]"), so that is the key looked up.
+   */
+  fv(name: string, v: Float32Array): void {
+    const l = this.at(name) ?? this.at(`${name}[0]`);
+    if (l) this.gl.uniform1fv(l, v);
+  }
+
+  f3v(name: string, v: Float32Array): void {
+    const l = this.at(name) ?? this.at(`${name}[0]`);
+    if (l) this.gl.uniform3fv(l, v);
+  }
+
+  f4v(name: string, v: Float32Array): void {
+    const l = this.at(name) ?? this.at(`${name}[0]`);
+    if (l) this.gl.uniform4fv(l, v);
+  }
+
   i(name: string, v: number): void {
     const l = this.at(name);
     if (l) this.gl.uniform1i(l, v);

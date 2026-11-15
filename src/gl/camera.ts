@@ -78,6 +78,17 @@ export function cameraBasis(c: CameraState): CameraBasis {
  * grazing camera is several world units, and grew as scrolling climbed the
  * beach. That is the whole reason this takes `water`.
  */
+/** The unit ray through screen point (sx, sy), both 0..1 with y up. */
+export function pixelRay(b: CameraBasis, sx: number, sy: number, aspect: number): Vec3 {
+  const px = (sx - 0.5) * aspect;
+  const py = sy - 0.5;
+  return normalize([
+    px * b.uu[0] + py * b.vv[0] + b.fov * b.ww[0],
+    px * b.uu[1] + py * b.vv[1] + b.fov * b.ww[1],
+    px * b.uu[2] + py * b.vv[2] + b.fov * b.ww[2],
+  ]);
+}
+
 export function groundHit(
   b: CameraBasis,
   sx: number,

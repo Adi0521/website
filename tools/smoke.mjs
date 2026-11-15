@@ -16,8 +16,13 @@
 
 import { spawn } from "node:child_process";
 import puppeteer from "puppeteer";
+import { readFileSync } from "node:fs";
 
 const PORT = 5275;
+// Counted from the source rather than hard-coded, so editing the timeline
+// does not fail the smoke test.
+const MILESTONE_COUNT = (readFileSync(new URL("../src/about/milestones.ts", import.meta.url), "utf8")
+  .match(/^\s*id: "/gm) ?? []).length;
 const BASE = `http://localhost:${PORT}`;
 const shotAt = process.argv.indexOf("--shot");
 const shotPath = shotAt > -1 ? process.argv[shotAt + 1] : null;
@@ -823,7 +828,8 @@ try {
     `"${about.headingText}" at ${about.headingBox ? `${about.headingBox.w}x${about.headingBox.h}` : "no box"}, ` +
     `rendered ${about.headingVisible ? "visibly" : "transparent"} — the mask is measured from this box`);
   check("the trail is a real list in the DOM",
-    about.listItems === 5, `${about.listItems} milestones as list items`);
+    about.listItems === MILESTONE_COUNT,
+    `${about.listItems} milestones as list items, ${MILESTONE_COUNT} in milestones.ts`);
 
   // Lateral swash. Measured through the SIMULATION's wetness channel, not the
   // picture: it proves the shared wave chunk bends the waterline for the sim

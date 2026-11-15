@@ -11,10 +11,10 @@
 import type { Brush } from "./agents/types";
 import type { MaskStamp } from "./sand/mask";
 import type { TextProp } from "./about/hero";
-import type { SignProp } from "./about/sign";
+import type { SignSet } from "./about/sign";
 import { createContext, GLUnsupported } from "./gl/context";
 import { bindFullscreenTriangle, ShaderError } from "./gl/program";
-import { cameraBasis, groundHit, type CameraState } from "./gl/camera";
+import { cameraBasis, groundHit, pixelRay, type CameraState } from "./gl/camera";
 import { pickTier, TIERS, type Tier } from "./gl/quality";
 import { BeachRenderer, type CursorState } from "./gl/renderer";
 import { SandField } from "./sand/field";
@@ -192,8 +192,38 @@ export class Beach {
    */
   textProp: (() => TextProp | null) | null = null;
 
-  /** The timeline signpost (§8.2). Geometry, like the name — not a mark. */
-  signProp: (() => SignProp | null) | null = null;
+  /** The timeline signposts (§8.2). Geometry, like the name — not marks. */
+  signProp: (() => SignSet | null) | null = null;
+
+  /**
+   * Things in the scene the pointer can click — the milestone scrolls. Given
+   * the pointer's ray; returns true when it is over one. `click` is true on a
+   * press, which the picker acts on. While the pointer is over something
+   * clickable the sand underneath takes no press and shows no cursor ring:
+   * clicking a scroll should not also dent the beach behind it.
+   */
+  picker: ((ro: readonly number[], rd: readonly number[], click: boolean) => boolean) | null = null;
+
+  /**
+   * A close-up the camera glides to — reading a milestone scroll (§8.2).
+   * Blended in by `zoomTarget`, eased, on top of whatever scroll and the focus
+   * pull are doing, so letting go glides back to exactly where the page is.
+   */
+  zoomView: Pick<CameraState, "target" | "azimuth" | "elevation" | "distance"> | null = null;
+  zoomTarget = 0;
+  private zoom = 0;
+
+  /** How far into the close-up the camera is, 0..1. */
+  get zoomAmount(): number {
+    return this.zoom;
+  }
+
+  /** Drops the close-up at once — for leaving the page mid-zoom. */
+  resetZoom(): void {
+    this.zoom = 0;
+    this.zoomTarget = 0;
+    this.zoomView = null;
+  }
 
   /**
    * The camera with the pull applied. Derived rather than written back, because
@@ -201,9 +231,25 @@ export class Beach {
    * push permanent the moment the pull was interrupted.
    */
   private pushedCamera(): CameraState {
-    if (this.focus <= 0.001) return this.camera;
     const push = this.config.focus.push;
-    return { ...this.camera, distance: this.camera.distance * (1 - push * this.focus) };
+    const base = this.focus <= 0.001
+      ? this.camera
+      : { ...this.camera, distance: this.camera.distance * (1 - push * this.focus) };
+    const z = this.zoomView ? this.zoom * this.zoom * (3 - 2 * this.zoom) : 0;
+    if (z <= 0.0001 || !this.zoomView) return base;
+    const v = this.zoomView;
+    const lerp = (a: number, b: number) => a + (b - a) * z;
+    // Shortest way round, so the glide never swings the long way.
+    let da = v.azimuth - base.azimuth;
+    da = Math.atan2(Math.sin(da), Math.cos(da));
+    return {
+      ...base,
+      target: [lerp(base.target[0], v.target[0]), lerp(base.target[1], v.target[1]), lerp(base.target[2], v.target[2])],
+      azimuth: base.azimuth + da * z,
+      elevation: lerp(base.elevation, v.elevation),
+      // In log space: a linear distance lerp rushes the last few centimetres.
+      distance: Math.exp(lerp(Math.log(base.distance), Math.log(v.distance))),
+    };
   }
 
   /**
@@ -460,6 +506,9 @@ export class Beach {
     // Eased, and snapped once it is close enough that another frame would not
     // change a pixel — otherwise the loop never reaches the freeze below and
     // a focus page keeps rendering forever at zero visible benefit.
+    const zk = 1 - Math.exp(-2.6 * elapsed);
+    this.zoom += (this.zoomTarget - this.zoom) * zk;
+    if (Math.abs(this.zoom - this.zoomTarget) < 0.001) this.zoom = this.zoomTarget;
     const fk = 1 - Math.exp(-FOCUS_RATE * elapsed);
     this.focus += (this.focusTarget - this.focus) * fk;
     if (Math.abs(this.focus - this.focusTarget) < 0.002) this.focus = this.focusTarget;
@@ -520,10 +569,22 @@ export class Beach {
 
   // ── input ─────────────────────────────────────────────────────────────────
 
+  /** Asks the picker about the pointer's ray. */
+  private pick(e: PointerEvent, click: boolean): boolean {
+    if (!this.picker) return false;
+    const r = this.canvas.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return false;
+    const basis = cameraBasis(this.pushedCamera());
+    const rd = pixelRay(basis, (e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height, r.width / r.height);
+    return this.picker(basis.ro, rd, click);
+  }
+
   private track(e: PointerEvent): void {
     const r = this.canvas.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return;
-    const basis = cameraBasis(this.camera);
+    const over = this.pick(e, false);
+    this.canvas.style.cursor = over ? "pointer" : "";
+    const basis = cameraBasis(this.pushedCamera());
     const hit = groundHit(
       basis,
       (e.clientX - r.left) / r.width,
@@ -535,7 +596,8 @@ export class Beach {
     // Valid means "on the ground and inside the patch". Outside it there is
     // nothing to press, and the cursor ring disappears to show where the
     // interactive zone ends — which is exactly the edge the clipmap moves.
-    this.ptr.valid = hit !== null && this.field.worldToField(hit[0], hit[1]) !== null;
+    // Nothing is pressed while reading a scroll up close.
+    this.ptr.valid = !over && this.zoom < 0.01 && hit !== null && this.field.worldToField(hit[0], hit[1]) !== null;
     if (hit) {
       this.ptr.x = hit[0];
       this.ptr.z = hit[1];
@@ -547,6 +609,8 @@ export class Beach {
 
     c.addEventListener("pointermove", (e) => this.track(e), { passive: true });
     c.addEventListener("pointerdown", (e) => {
+      // A click on a scroll is the scroll's, not the sand's.
+      if (this.pick(e, true)) return;
       c.setPointerCapture(e.pointerId);
       this.ptr.down = true;
       this.track(e);

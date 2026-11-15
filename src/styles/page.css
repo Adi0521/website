@@ -128,17 +128,24 @@
    pace it did at 85vh. */
 #timeline { max-width: var(--measure); padding: 0 clamp(1rem, 4vw, 3rem); }
 #timeline > h2 { color: var(--foam); text-shadow: 0 1px 24px color-mix(in srgb, var(--ink) 60%, transparent); }
-/* The word is cut into the signpost in the scene (src/about/sign.ts), so the
-   heading goes transparent for the same reasons the hero's does: kept laid
-   out and readable, back the moment the scene cannot carry it. */
-:root:not([data-scene="off"]) #timeline > h2 { opacity: 0; }
+/* The heading and every milestone are painted on signposts in the scene
+   (src/about/sign.ts), so the DOM copies go transparent for the same reasons
+   the hero's does: kept laid out (the list's height is About's scroll length),
+   readable to screen readers and search, back the moment the scene cannot
+   carry them. */
+:root:not([data-scene="off"]) #timeline > h2,
+:root:not([data-scene="off"]) #timeline .trail { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-scene="off"]) #timeline > h2 { opacity: 1; }
+  :root:not([data-scene="off"]) #timeline > h2,
+  :root:not([data-scene="off"]) #timeline .trail { opacity: 1; }
 }
 :root[data-scene="off"] #timeline > h2 { color: var(--ink); text-shadow: none; }
 
 .trail { list-style: none; margin: 0; padding: 0; }
-.trail li { min-height: 170vh; display: flex; align-items: center; }
+/* A column, not a row: the date sits above its line. (Flex here outranks
+   .milestone's display: block, and its default row put them side by side.) */
+.trail li { min-height: 170vh; display: flex; flex-direction: column;
+            justify-content: center; align-items: flex-start; }
 
 /* Text over the live scene, so it needs the same lift the hero copy gets.
    Deliberately NOT pointer-events: auto — nothing here is interactive yet, and
@@ -152,7 +159,7 @@
   text-shadow: 0 1px 24px color-mix(in srgb, var(--ink) 60%, transparent);
 }
 
-.milestone .util { display: block; opacity: 0.8; }
+.milestone .util { display: block; opacity: 0.8; margin-bottom: 0.35rem; }
 .milestone .detail { display: block; font-size: 1.05rem; }
 
 :root[data-scene="off"] .milestone { color: var(--ink); text-shadow: none; }

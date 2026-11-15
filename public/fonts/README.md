@@ -9,6 +9,7 @@ visitors to a font host.
 | Display | **Mattone** | https://www.collletttivo.it/typefaces/mattone |
 | Body | **Hanken Grotesk** | https://fonts.google.com/specimen/Hanken+Grotesk |
 | Mono | **Sligoil** | https://velvetyne.fr/fonts/sligoil/ |
+| Sign lettering | **Caveat Brush** | https://fonts.google.com/specimen/Caveat+Brush (via @fontsource/caveat-brush, latin subset) |
 
 Download, subset to Latin, and convert to woff2:
 

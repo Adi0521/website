@@ -23,7 +23,8 @@ import compositeSrc from "./shaders/composite.frag";
 
 export type { TextProp } from "../about/hero";
 import type { TextProp } from "../about/hero";
-import type { SignProp } from "../about/sign";
+import type { SignSet } from "../about/sign";
+import { MAX_SIGNS } from "../about/sign";
 
 export interface CursorState {
   /** World XZ of the ring. */
@@ -82,7 +83,7 @@ export class BeachRenderer {
     view: DebugView,
     focus = 0,
     text: TextProp | null = null,
-    sign: SignProp | null = null,
+    signs: SignSet | null = null,
   ): void {
     if (!field.ready) return;
     const gl = this.gl;
@@ -165,16 +166,27 @@ export class BeachRenderer {
 
     // The timeline signpost (§8.2). Same rule as the name's sampler: bound
     // every frame so an unset unit never aliases the sand field.
-    this.prog.tex("uSignTex", 3, sign?.texture ?? field.staticTexture);
-    this.prog.f("uSignOn", sign ? 1 : 0);
-    if (sign) {
-      this.prog.f3("uSignC", sign.foot[0], sign.foot[1], sign.foot[2]);
-      this.prog.f3("uSignR", sign.right[0], sign.right[1], sign.right[2]);
-      this.prog.f3("uSignU", sign.up[0], sign.up[1], sign.up[2]);
-      this.prog.f3("uSignN", sign.normal[0], sign.normal[1], sign.normal[2]);
-      this.prog.f4("uSignBoard", sign.board[0], sign.board[1], sign.board[2], sign.board[3]);
-      this.prog.f3("uSignPost", sign.post[0], sign.post[1], sign.post[2]);
-      this.prog.f("uSignPx", Math.max(sign.px, 1));
+    this.prog.tex("uSignTex", 3, signs?.texture ?? field.staticTexture);
+    const list = signs ? signs.signs.slice(0, MAX_SIGNS) : [];
+    this.prog.i("uSignCount", list.length);
+    if (list.length) {
+      const flat = (pick: (s: SignSet["signs"][number]) => readonly number[], n: number) => {
+        const a = new Float32Array(MAX_SIGNS * n);
+        list.forEach((s, i) => a.set(pick(s), i * n));
+        return a;
+      };
+      this.prog.f3v("uSignC", flat((s) => s.foot, 3));
+      this.prog.f3v("uSignR", flat((s) => s.right, 3));
+      this.prog.f3v("uSignU", flat((s) => s.up, 3));
+      this.prog.f3v("uSignN", flat((s) => s.normal, 3));
+      this.prog.f4v("uSignBoard", flat((s) => s.board, 4));
+      this.prog.f3v("uSignPost", flat((s) => s.post, 3));
+      this.prog.f4v("uSignUV", flat((s) => s.uv, 4));
+      this.prog.fv("uSignPx", flat((s) => [Math.max(s.px, 1)], 1));
+      this.prog.f4v("uScroll", flat((s) => s.scroll ?? [0, 0, 0, 0], 4));
+      // Eased in shape as well as in time: slow off the roll, slow to stop.
+      this.prog.fv("uScrollOpen", flat((s) => [s.open * s.open * (3 - 2 * s.open)], 1));
+      this.prog.f4v("uScrollUV", flat((s) => s.scrollUV, 4));
     }
 
     drawFullscreen(gl);

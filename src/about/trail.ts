@@ -56,7 +56,9 @@ export interface TrailOptions {
 }
 
 export const DEFAULT_TRAIL: TrailOptions = {
-  x: 0.3,
+  // Near the screen's centre line, so the signs either side of it both stay
+  // in frame as the camera passes them.
+  x: 0.1,
   footLength: 0.26,
   footWidth: 0.1,
   // A walking gait, one foot in front of the other: a narrow track, with

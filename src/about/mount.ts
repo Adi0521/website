@@ -16,7 +16,7 @@
 import type { Beach } from "../beach";
 import { HeroName, DEFAULT_HERO } from "./hero";
 import { FootprintTrail } from "./trail";
-import { TimelineSign, DEFAULT_SIGN } from "./sign";
+import { SignPosts } from "./sign";
 import { MILESTONES } from "./milestones";
 import { beachHeight } from "../sand/params";
 import { DEFAULT_SCROLL } from "../scroll";
@@ -25,7 +25,11 @@ import { DEFAULT_CAMERA } from "../beach";
 export class AboutStations {
   private readonly hero: HeroName;
   private readonly trail: FootprintTrail;
-  private readonly sign: TimelineSign;
+  private readonly signs: SignPosts;
+  private lastFrame = performance.now();
+  /** The scroll being read, or -1; and whether it is on its way back. */
+  private reading = -1;
+  private closing = false;
   /** The "Timeline" heading the sign's word is cut from. */
   private signEl: HTMLElement | null = null;
   private detach: (() => void) | null = null;
@@ -53,8 +57,30 @@ export class AboutStations {
 
     // Like the name, the sign stays put across navigation (it is part of the
     // scene, not a mark), and is rebuilt from the heading on each mount.
-    this.sign = new TimelineSign(beach.gl);
-    beach.signProp = () => (this.sign.ready ? this.sign.prop() : null);
+    this.signs = new SignPosts(beach.gl);
+    beach.signProp = () => this.signs.set;
+    // Clicking a milestone scroll unrolls it and the camera glides in to
+    // read it; while reading, a click anywhere glides back out and rolls it
+    // up again. Only while About is showing.
+    beach.picker = (ro, rd, click) => {
+      if (!this.live) return false;
+      if (this.reading >= 0) {
+        if (click) this.closing = true;
+        return true;
+      }
+      const i = this.signs.pick(ro, rd);
+      if (i < 0) return false;
+      if (click) {
+        const view = this.signs.zoomView(i, beach.camera.fovDeg);
+        if (view) {
+          this.reading = i;
+          this.closing = false;
+          this.signs.setTarget(i, 1);
+          beach.zoomView = view;
+        }
+      }
+      return true;
+    };
   }
 
   /**
@@ -78,7 +104,20 @@ export class AboutStations {
       this.pending = true;
     };
     addEventListener("resize", onResize);
-    this.detach = () => removeEventListener("resize", onResize);
+    // Scrolling the page, or Escape, while reading a scroll leaves it.
+    const leave = () => {
+      if (this.reading >= 0) this.closing = true;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") leave();
+    };
+    addEventListener("scroll", leave, { passive: true });
+    addEventListener("keydown", onKey);
+    this.detach = () => {
+      removeEventListener("resize", onResize);
+      removeEventListener("scroll", leave);
+      removeEventListener("keydown", onKey);
+    };
 
     // Fonts arriving late change the metrics under us. §5 fixes the display
     // face as Mattone, and a mask rasterized before it loads is the fallback
@@ -90,8 +129,36 @@ export class AboutStations {
     }
   }
 
+  /**
+   * The read sequence, in order: unroll, THEN glide in once the page is
+   * mostly open; on the way back, glide out, THEN roll up once the camera has
+   * mostly pulled away — so neither motion hides the other.
+   */
+  private stepReading(): void {
+    const i = this.reading;
+    if (i < 0) return;
+    if (!this.closing) {
+      if (this.signs.openness(i) > 0.75) this.beach.zoomTarget = 1;
+      return;
+    }
+    this.beach.zoomTarget = 0;
+    if (this.beach.zoomAmount < 0.35) this.signs.setTarget(i, 0);
+    if (this.beach.zoomAmount <= 0 && this.signs.openness(i) <= 0) {
+      this.reading = -1;
+      this.closing = false;
+      this.beach.zoomView = null;
+    }
+  }
+
   /** Called by the router before About's DOM is replaced. */
   unmount(): void {
+    // Leaving mid-read: drop the close-up at once and roll the page back up.
+    if (this.reading >= 0) {
+      this.signs.setTarget(this.reading, 0);
+      this.reading = -1;
+      this.closing = false;
+      this.beach.resetZoom();
+    }
     this.live = false;
     this.el = null;
     this.signEl = null;
@@ -114,9 +181,9 @@ export class AboutStations {
     if (!this.live || !this.el) return;
     const water = this.beach.config.water;
     const sand = beachHeight(DEFAULT_HERO.z, water);
-    // The sign has no layout dependency, only a font one, so it is simply
-    // rebuilt whenever the name is.
-    this.sign.build(this.signEl, beachHeight(DEFAULT_SIGN.z, water));
+    // The signs have no layout dependency, only a font one, so they are
+    // simply rebuilt whenever the name is (and again when their face loads).
+    this.signs.build(this.signEl, MILESTONES, (z) => beachHeight(z, water));
     if (this.hero.build(this.el, sand, water.seaLevel, aimX(DEFAULT_HERO.z))) this.pending = false;
   }
 
@@ -128,6 +195,14 @@ export class AboutStations {
    */
   update(): void {
     if (!this.live) return;
+    const now = performance.now();
+    this.signs.animate(Math.min(0.1, (now - this.lastFrame) / 1000));
+    this.lastFrame = now;
+    this.stepReading();
+    if (this.signs.stale) {
+      this.signs.stale = false;
+      this.pending = true;
+    }
     if (this.pending) this.rebuild();
     if (this.hero.ready) this.hero.orient(this.beach.basis);
   }
@@ -141,9 +216,10 @@ export class AboutStations {
     this.unbind();
     this.hero.dispose();
     this.trail.dispose();
-    this.sign.dispose();
+    this.signs.dispose();
     this.beach.textProp = null;
     this.beach.signProp = null;
+    this.beach.picker = null;
     this.beach.maskStamp = null;
   }
 }

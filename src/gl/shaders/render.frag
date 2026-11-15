@@ -126,8 +126,8 @@ void main(){
 
   vec3 col;
   float tTex; vec3 nTex;
-  float tSign, signPart; vec3 nSign;
-  bool gotSign = signHit(ro, rd, tHit > 0.0 ? tHit : 1.0e9, tSign, nSign, signPart);
+  float tSign, signPart; vec3 nSign; int signIdx;
+  bool gotSign = signHit(ro, rd, tHit > 0.0 ? tHit : 1.0e9, tSign, nSign, signPart, signIdx);
   // Whichever stands nearer wins: the name's march is cut off at the sign.
   bool gotTex = textSolid(ro, rd, gotSign ? tSign : (tHit > 0.0 ? tHit : 1.0e9), tTex, nTex);
 
@@ -171,15 +171,19 @@ void main(){
   } else if(gotSign){
     // ------------------------------------------------- the signpost --
     vec3 p = ro + rd*tSign;
-    vec3 lp = signLocal(p);
-    vec3 nl = signDir(nSign);
-    float paint;
-    vec3 albedo = signAlbedo(lp, nl, signPart, tSign, paint);
+    vec3 lp = signLocal(signIdx, p);
+    vec3 nl = signDir(signIdx, nSign);
+    float paint = 0.0;
+    vec3 albedo = signPart < 1.5
+      ? signAlbedo(signIdx, lp, nl, signPart, tSign, paint)
+      : scrollAlbedo(signIdx, lp, nl, signPart, tSign);
     vec3 N = nSign;
     float ndl = max(dot(N,L), 0.0);
-    // The ground's shadow, and the board's on the post (and vice versa).
+    // The ground's shadow, and the board's on its own post (and vice versa).
+    // Not other signs': one board's soft shadow across another reads as a
+    // scorch mark, not as light.
     float sh = sunShadow(p.xz, p.y, L);
-    sh = min(sh, 1.0 - signShadow(p + N*0.004, L));
+    sh = min(sh, 1.0 - (L.y > 0.02 ? signShadowOne(signIdx, p + N*0.004, L) : 0.0));
     sh = min(sh, 1.0 - textShadow(p, L));
     vec3 direct  = SUN_RIM*ndl*sh*uExposure/max(sin(uSunEl), 0.10);
     vec3 ambient = SAND_SHADOW*(0.40 + 0.60*max(N.y,0.0))*uSky;
