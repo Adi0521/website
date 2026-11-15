@@ -103,7 +103,7 @@ void main(){
     if(i >= budget) break;
     vec3 p = ro + rd*t;
     if(t > 18.0) break;
-    if(p.y > 1.1 && rd.y > 0.0) break;           // ascending, above everything
+    if(p.y > 1.4 && rd.y > 0.0) break;           // ascending, above everything (beach tops out at 1.2)
     float d = p.y - sceneY(p.xz);
     if(d < 0.0){
       // crossed the surface. bisect for the true intersection, otherwise the

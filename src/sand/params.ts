@@ -165,7 +165,7 @@ export const DEFAULT_SAND: SandConfig = {
  * somewhere the cursor is not.
  */
 export function beachHeight(z: number, water: WaterParams): number {
-  return Math.min(0.9, Math.max(-1.3, (z - water.shoreZ) * water.slope));
+  return Math.min(1.2, Math.max(-1.3, (z - water.shoreZ) * water.slope));
 }
 
 /** Debug visualisations, kept from the prototype. 0 is the shipped view. */

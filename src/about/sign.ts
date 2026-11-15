@@ -79,10 +79,10 @@ export interface SignShape {
 // the sand there, and a board at eye height fills the screen. Kept well under
 // that, it passes beneath the view and rises up the frame.
 export const TIMELINE_SIGN: SignShape & { x: number; z: number } = {
-  // Left of the trail (x 0.1); turned a little back toward it.
-  x: -0.45,
+  // On the trail's centre line (DEFAULT_TRAIL.x), facing straight back up it.
+  x: DEFAULT_TRAIL.x,
   z: 4.8,
-  yaw: 0.22,
+  yaw: 0,
   lean: 0.05,
   boardHalfW: 0.2,
   boardHalfH: 0.058,
@@ -95,7 +95,7 @@ export const TIMELINE_SIGN: SignShape & { x: number; z: number } = {
 /** A milestone sign: taller, for three lines — date, where, what. */
 export const MILESTONE_SIGN: SignShape & { offset: number; scrollHalfW: number; scrollLength: number } = {
   /** Distance from the trail's centre line; signs alternate sides. */
-  offset: 0.55,
+  offset: 0.65,
   /**
    * The scroll: a small page, half its width and its unrolled length. Small
    * on purpose — it is read with the camera zoomed in on it, not from the trail.
@@ -162,9 +162,19 @@ export class SignPosts {
     }
 
     const word = heading?.textContent?.trim() || "Timeline";
+    // Signs alternate sides of the trail, counted back from the LAST one,
+    // which always stands on the left: the camera's arc swings the view right
+    // as the scroll ends, and a right-hand sign that close is cut off.
+    const count = Math.min(milestones.length, MAX_SIGNS - 1);
+    const sideOf = (i: number) => ((count - 1 - i) % 2 === 0 ? -1 : 1);
     const placed: Placed[] = [
       {
-        x: TIMELINE_SIGN.x, z: TIMELINE_SIGN.z, shape: TIMELINE_SIGN, yaw: TIMELINE_SIGN.yaw,
+        // Square across the trail where it begins: the prints start just
+        // past it (trail.ts keeps its mask clear of z < ~5).
+        x: TIMELINE_SIGN.x,
+        z: TIMELINE_SIGN.z,
+        shape: TIMELINE_SIGN,
+        yaw: TIMELINE_SIGN.yaw,
         paint: (g, w, h) => {
           if (!paintWord(g, word, w, h)) paintLines(g, [{ text: word, size: 1 }], w, h, rng(7));
         },
@@ -175,7 +185,7 @@ export class SignPosts {
       // each turned a little toward the prints it stands beside. The order
       // puts the LAST sign on the left: the camera's arc swings the view right
       // as the scroll ends, and a right-hand sign that close is cut off.
-      const side = i % 2 === 0 ? 1 : -1;
+      const side = sideOf(i);
       placed.push({
         x: DEFAULT_TRAIL.x + side * MILESTONE_SIGN.offset,
         z: m.z,

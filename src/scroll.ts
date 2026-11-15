@@ -46,10 +46,11 @@ export interface ScrollCameraOptions {
   /**
    * World Z at the bottom of the page.
    *
-   * Bounded by the ramp, not by taste. `beachY` clamps at 0.9, so the beach
-   * stops rising at z≈10.59, and the eye trails ~2.82 behind its target —
-   * above ~7.7 the eye is over flat ground and the near foreground turns into
-   * a shelf. Raise it past that only if you want the plateau.
+   * Bounded by the ramp, not by taste. `beachY` clamps at 1.2, so the beach
+   * stops rising at z≈14.1, and the eye trails ~2.82 behind its target —
+   * above ~11.3 the eye is over flat ground and the near foreground turns into
+   * a shelf. 10.4 rather than that: the timeline's signs run to z≈11, and
+   * the further the camera retreats the smaller the name in the surf gets.
    */
   endZ: number;
   /** Radians of azimuth swept across About. Keep it small. */
@@ -69,7 +70,7 @@ export interface ScrollCameraOptions {
 
 export const DEFAULT_SCROLL: ScrollCameraOptions = {
   startZ: 2.0,
-  endZ: 7.6,
+  endZ: 10.4,
   arc: 0.18, // ~10° end to end
   focusTravelPerScreen: 0.5,
   ease: 6,

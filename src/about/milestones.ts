@@ -42,8 +42,9 @@ export interface Milestone {
 
 /**
  * Newest first: the walk starts at "Now" by the signpost and heads back in
- * time up the beach. Six milestones across z 5.4–8.65, 0.65 apart, each with
- * its own sign beside its prints (sign.ts). Not past ~8.7, so the last
+ * time up the beach. Seven milestones across z 5.4–11.0, ~0.93 apart, each with
+ * its own sign beside its prints (sign.ts). Not past ~0.6 beyond the camera's
+ * endZ (scroll.ts, 10.4), so the last
  * sign is not right under the lens when the scroll ends.
  */
 export const MILESTONES: Milestone[] = [
@@ -56,7 +57,7 @@ export const MILESTONES: Milestone[] = [
       "Built an automated data-governance pipeline in Python on Azure and Databricks that checks 1,200+ resources a day, replacing work that used to cost dozens of engineer-hours. Now building LangGraph agents that review code before they file pull requests, and MCP servers for chemical-manufacturing tools.",
   },
   {
-    id: "engelken", z: 6.05, label: "Dec 2025",
+    id: "engelken", z: 6.33, label: "Dec 2025",
     org: "Engelken Lab", role: "Spiking neural nets",
     detail:
       "Joined the Engelken Lab at Illinois, scaling spiking neural network simulations from 10,000 to 100,000 neurons in Julia.",
@@ -64,7 +65,7 @@ export const MILESTONES: Milestone[] = [
       "Scaled spiking neural network simulations from 10,000 to 100,000 neurons, modelling the cortex as a high-dimensional dynamical system. Wrote a leaky integrate-and-fire network in Julia that runs 15\u00d7 faster than the Brian2 reference, and now exploring transformer-inspired spiking architectures.",
   },
   {
-    id: "motate", z: 6.7, label: "Summer 2025",
+    id: "motate", z: 7.27, label: "Summer 2025",
     org: "Motate", role: "Software intern",
     detail:
       "Software engineering intern at Motate in San Jose, building the serverless AWS pipeline behind AI dubbing and lip-sync in 15+ languages.",
@@ -72,7 +73,7 @@ export const MILESTONES: Milestone[] = [
       "Built the serverless AWS side of an AI dubbing and lip-sync service in 15+ languages: Terraform, Step Functions, Lambda and SageMaker. Tuned the voice-cloning pipeline, and wrote the APIs behind sign-up, video upload and translation status.",
   },
   {
-    id: "attune", z: 7.35, label: "Feb 2025",
+    id: "attune", z: 8.21, label: "Feb 2025",
     org: "Attune", role: "EEG + VR therapy",
     detail:
       "Started building EEG models at Attune NeuroFeedback: attention, emotion and stress signals for a VR therapy game.",
@@ -80,15 +81,23 @@ export const MILESTONES: Milestone[] = [
       "Built the models behind a VR neurofeedback therapy game: a BiLSTM that reads attention from EEG at 85% accuracy, real-time emotion recognition from facial meshes, and a multiscale-entropy stress signal ahead of clinical trials.",
   },
   {
-    id: "illinois", z: 8.0, label: "Fall 2024",
-    org: "Illinois", role: "CS + Bioengineering",
+    id: "divergence", z: 9.15, label: "Sep 2024",
+    org: "Divergence 2%", role: "LLM inference research",
     detail:
-      "Started Computer Science & Bioengineering at the University of Illinois. Took the lead on iMADE's heart-attack detection team, and did LLM inference research at Divergence 2%.",
+      "Undergraduate researcher at Divergence 2%, making conversational AI characters fast and human-like: LLM inference, fine-tuning and evaluation.",
     story:
-      "Started CS + Bioengineering at UIUC. Leading iMADE's team of 8 building a heart-attack detector, from a custom ECG circuit board to models that read 10,000+ traces. Also cut LLM response time from ~40 s to ~1.5 s as a researcher at Divergence 2%.",
+      "Cut response time for conversational AI characters from ~40 s to ~1.5 s with ONNX, TensorRT, vLLM, quantization and batching. Trained across 4 H100s with a custom fused-attention CUDA kernel, and fine-tuned 70B-parameter models with LoRA-based DPO to sound more human.",
   },
   {
-    id: "science-gurus", z: 8.65, label: "Summer 2023",
+    id: "illinois", z: 10.1, label: "Fall 2024",
+    org: "Illinois", role: "CS + Bioengineering",
+    detail:
+      "Started Computer Science & Bioengineering at the University of Illinois: classes, intramural soccer, frisbee, and exploring Champaign-Urbana. Also leading iMADE's heart-attack detection team.",
+    story:
+      "Started CS + Bioengineering at UIUC, with classes in deep learning, computer vision, systems programming and soft robotics. Outside class: intramural soccer, frisbee, and exploring Champaign-Urbana for cool spots. Also leading iMADE's team of 8 building a heart-attack detector.",
+  },
+  {
+    id: "science-gurus", z: 11.0, label: "Summer 2023",
     org: "Science Gurus", role: "Bioinformatics intern",
     detail:
       "Where it started: a bioinformatics internship at Science Gurus, looking for genetic markers of NMOSD.",

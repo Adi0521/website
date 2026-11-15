@@ -4,7 +4,9 @@ uniform float uSwash, uSwashFilm, uSwashLat;
 
 // the beach itself: a gentle ramp, zero at the shoreline, rising toward the
 // camera and dropping away seaward
-float beachY(float z){ return clamp((z - uShoreZ)*uSlope, -1.3, 0.9); }
+// Tops out at 1.2 (z≈14.1). Raised from 0.9 to give the timeline room: the
+// camera has to stay on the slope, and the signs need the travel to spread out.
+float beachY(float z){ return clamp((z - uShoreZ)*uSlope, -1.3, 1.2); }
 
 // how far along the beach we are, laterally. two sines drifting at different
 // rates and in opposite directions, so the pattern never repeats within a

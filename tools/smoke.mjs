@@ -247,10 +247,10 @@ try {
       ];
       const w = b.config.water;
       const raw = (p[2] - w.shoreZ) * w.slope;
-      const ground = Math.min(0.9, Math.max(-1.3, raw));
-      // `raw` past 0.9 means the ramp has clamped and the eye is over the flat
+      const ground = Math.min(1.2, Math.max(-1.3, raw));
+      // `raw` past 1.2 means the ramp has clamped and the eye is over the flat
       // plateau, where the near foreground stops being a beach and becomes a shelf.
-      return { y: p[1], ground, clear: p[1] - ground, onSlope: raw < 0.9 };
+      return { y: p[1], ground, clear: p[1] - ground, onSlope: raw < 1.2 };
     };
 
     const z0 = b.camera.target[2], az0 = b.camera.azimuth;
@@ -297,7 +297,7 @@ try {
     scroll.onSlope,
     scroll.onSlope
       ? "the eye never reaches the ramp's clamp"
-      : "endZ puts the eye over the flat plateau past z≈10.6",
+      : "endZ puts the eye over the flat plateau past z≈14.1",
   );
   check(
     "the sand patch follows the camera",
@@ -318,7 +318,7 @@ try {
   const pick = await page.evaluate(async () => {
     const b = window.__beach;
     const w = b.config.water;
-    const ramp = (z) => Math.min(0.9, Math.max(-1.3, (z - w.shoreZ) * w.slope));
+    const ramp = (z) => Math.min(1.2, Math.max(-1.3, (z - w.shoreZ) * w.slope));
     const sub = (a, c) => [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
     const norm = (a) => {
       const l = Math.hypot(a[0], a[1], a[2]) || 1;

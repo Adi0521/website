@@ -66,7 +66,15 @@ void main(){
   if(uReset > 0.5 || fresh){ outC = vec4(0.0); return; }
 
   vec4 c = texture(uPrev, uv0);
-  float h0 = c.r, dst = c.g, wet = c.b, age = c.a;
+  float h0 = c.r, dst = c.g, wet = c.b;
+  // RELEASED rides in the sign of age: a texel where the pointer has pressed
+  // into a mask mark (a timeline footprint) stores age as -(age + 1). From
+  // then on the mask no longer holds that texel and it is ordinary sand —
+  // pressed, slumped and filled like any other. All four channels are spent
+  // (§6.1), age is never negative otherwise, and only this pass reads it.
+  // A reset or freshly scrolled-in ground starts unreleased.
+  bool released = c.a < -0.5;
+  float age = released ? -c.a - 1.0 : c.a;
 
   // this texel's world position. hoisted above the stamp because the mask is
   // placed in world space; the wave section below reuses it.
@@ -90,6 +98,20 @@ void main(){
   vec2  mrg   = maskAt(wxz);
   float mv    = mrg.x;
   float mDepth = uMaskDepth*mrg.y;
+
+  // The mask and the pointer must never fight over a texel. Re-pressing a
+  // print every frame while the pointer reshapes the same sand pulled
+  // whatever the pointer raised back down, rebuilt any rim it dug out, and —
+  // by holding age at zero — switched off slumping, so the pointer's marks
+  // inside a print stayed jagged. That was the glitch.
+  //   - A real PRESS (well above the 0.42 of a hover) releases the texel
+  //     for good: the print there is now just sand.
+  //   - A HOVER only stands the mask off under the pointer while it is there,
+  //     so passing the mouse over the trail does not wipe it out.
+  float touch = uPressure*(core + ring);
+  if(mv > 0.01 && touch > 0.55) released = true;
+  float hold = released ? 0.0 : 1.0 - clamp(touch*2.0, 0.0, 1.0);
+  mv *= hold;
   float mCore = smoothstep(0.55, 0.88, mv);
   float mRing = smoothstep(0.06, 0.34, mv)*(1.0 - smoothstep(0.34, 0.62, mv));
 
@@ -177,5 +199,5 @@ void main(){
   // older, shallower marks also read as less freshly disturbed
   dst = max(dst, min(1.0, uMaskPress*mrg.y*(mCore + mRing*0.7)));
 
-  outC = vec4(clamp(h,-1.0,1.0), clamp(dst,0.0,1.0), clamp(wet,0.0,1.0), age);
+  outC = vec4(clamp(h,-1.0,1.0), clamp(dst,0.0,1.0), clamp(wet,0.0,1.0), released ? -age - 1.0 : age);
 }
